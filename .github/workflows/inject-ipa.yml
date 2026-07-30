@@ -4,27 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       ipa_url:
-        description: 'URL direct tới file IPA gốc (Decrypted)'
+        description: 'URL direct IPA'
         required: true
         type: string
       deb_urls:
-        description: 'Danh sách URL direct tới các file .deb (Cách nhau bằng khoảng trắng)'
+        description: 'URL direct Debs (cach nhau khoang trang)'
         required: true
         type: string
-      display_name:
-        description: 'Tên App mới (Để trống nếu giữ nguyên)'
-        default: ''
-        required: false
-        type: string
-      bundle_id:
-        description: 'Bundle ID mới (Để trống nếu giữ nguyên)'
-        default: ''
-        required: false
-        type: string
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build-and-release:
@@ -33,112 +19,66 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download IPA and Multiple Tweaks
+      - name: Download Files
         run: |
-          echo "Đang tải file IPA..."
           curl -L "${{ inputs.ipa_url }}" -o input.ipa
           
-          echo "Đang tải danh sách file Tweak..."
           COUNTER=1
           CMD_ARGS="-i input.ipa -o Output_App.ipa"
-          
-          echo "${{ inputs.deb_urls }}" | xargs -n1 | while read -r url; do
+          for url in ${{ inputs.deb_urls }}; do
             [ -z "$url" ] && continue
-            echo "Đang tải tweak thứ $COUNTER từ: $url"
             curl -L "$url" -o "tweak_$COUNTER.deb"
+            CMD_ARGS="$CMD_ARGS -f tweak_$COUNTER.deb"
             COUNTER=$((COUNTER + 1))
           done
-          
-          for f in tweak_*.deb; do
-            if [ -f "$f" ]; then
-              CMD_ARGS="$CMD_ARGS -f $f"
-            fi
-          done
-          
           echo "CYAN_CMD=cyan $CMD_ARGS" >> $GITHUB_ENV
 
-      - name: Install cyan tool
+      - name: Install cyan
         run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
-      - name: Inject Tweaks and Customize App & Extract Info
+      - name: Inject and Process
         run: |
-          FINAL_CMD="$CYAN_CMD"
+          eval $CYAN_CMD
           
-          if [ -n "${{ inputs.display_name }}" ]; then
-            FINAL_CMD="$FINAL_CMD -n '${{ inputs.display_name }}'"
-          fi
-          
-          if [ -n "${{ inputs.bundle_id }}" ]; then
-            FINAL_CMD="$FINAL_CMD -b ${{ inputs.bundle_id }}"
-          fi
-          
-          echo "Thực thi: $FINAL_CMD"
-          eval $FINAL_CMD
+          python3 -c "
+import plistlib, os, glob
+plist_path = glob.glob('extracted_app/Payload/*/Info.plist', recursive=True) or glob.glob('Payload/*/Info.plist')
+if not plist_path:
+    import zipfile
+    with zipfile.ZipFile('Output_App.ipa', 'r') as z:
+        for f in z.namelist():
+            if f.endswith('Info.plist'):
+                z.extract(f, 'temp_plist')
+                break
+    plist_path = glob.glob('temp_plist/**/Info.plist', recursive=True)
 
-          echo "Đang trích xuất thông tin thực tế từ IPA..."
-          mkdir -p extracted_app
-          unzip -q Output_App.ipa -d extracted_app
-          PLIST_PATH=$(find extracted_app/Payload -name "Info.plist" | head -n 1)
-          
-          if [ -f "$PLIST_PATH" ]; then
-            python3 -c "
-import plistlib
-import os
+if plist_path:
+    with open(plist_path[0], 'rb') as f:
+        pl = plistlib.load(f)
+    name = pl.get('CFBundleDisplayName') or pl.get('CFBundleName') or 'App'
+    ver = pl.get('CFBundleShortVersionString') or '1.0'
+else:
+    name, ver = 'App', '1.0'
 
-plist_file = '$PLIST_PATH'
-with open(plist_file, 'rb') as f:
-    pl = plistlib.load(f)
-
-app_name = pl.get('CFBundleDisplayName') or pl.get('CFBundleName') or 'Unknown'
-bundle_id = pl.get('CFBundleIdentifier') or 'Unknown'
-version = pl.get('CFBundleShortVersionString') or '1.0'
-
-safe_app_name = ''.join(c for c in app_name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-
-with open(os.environ['GITHUB_ENV'], 'a') as env_file:
-    env_file.write(f'EXTRACTED_NAME={app_name}\n')
-    env_file.write(f'EXTRACTED_BUNDLE={bundle_id}\n')
-    env_file.write(f'EXTRACTED_VERSION={version}\n')
-    env_file.write(f'SAFE_APP_NAME={safe_app_name}\n')
+safe_name = ''.join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+with open(os.environ['GITHUB_ENV'], 'a') as env:
+    env.write(f'APP_NAME={name}\n')
+    env.write(f'APP_VER={ver}\n')
+    env.write(f'SAFE_NAME={safe_name}\n')
 "
-          else
-            echo "EXTRACTED_NAME=Custom App" >> $GITHUB_ENV
-            echo "EXTRACTED_BUNDLE=Unknown" >> $GITHUB_ENV
-            echo "EXTRACTED_VERSION=1.0" >> $GITHUB_ENV
-            echo "SAFE_APP_NAME=Custom_App" >> $GITHUB_ENV
-          fi
+          mv Output_App.ipa "${{ env.SAFE_NAME }}_v${{ env.APP_VER }}.ipa"
+          echo "FINAL_FILE=${{ env.SAFE_NAME }}_v${{ env.APP_VER }}.ipa" >> $GITHUB_ENV
 
-          FINAL_IPA_NAME="${{ env.SAFE_APP_NAME }}_v${{ env.EXTRACTED_VERSION }}.ipa"
-          mv Output_App.ipa "$FINAL_IPA_NAME"
-          echo "FINAL_IPA_FILE=$FINAL_IPA_NAME" >> $GITHUB_ENV
-
-      - name: Generate Auto Tag & Release
-        id: auto_tag
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          AUTO_TAG="v${{ env.EXTRACTED_VERSION }}-${{ github.run_number }}"
-          echo "tag=$AUTO_TAG" >> $GITHUB_OUTPUT
-          
+          TAG="v${{ env.APP_VER }}-${{ github.run_number }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$AUTO_TAG"
-          git push origin "$AUTO_TAG" || true
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ${{ env.FINAL_IPA_FILE }}
-          tag_name: ${{ steps.auto_tag.outputs.tag }}
-          name: "${{ env.EXTRACTED_NAME }} ${{ env.EXTRACTED_VERSION }}"
-          body: |
-            ## App Release Info
-            
-            * **App Name:** `${{ env.EXTRACTED_NAME }}`
-            * **Bundle ID:** `${{ env.EXTRACTED_BUNDLE }}`
-            * **Version:** `${{ env.EXTRACTED_VERSION }}`
-            * **Platform:** `iOS`
-          draft: false
-          prerelease: false
+          git tag "$TAG"
+          git push origin "$TAG"
+          
+          gh release create "$TAG" "${{ env.FINAL_FILE }}" --title "${{ env.APP_NAME }} ${{ env.APP_VER }}" --notes "App Name: ${{ env.APP_NAME }} | Version: ${{ env.APP_VER }}"
