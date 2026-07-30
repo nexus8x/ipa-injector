@@ -42,18 +42,32 @@ jobs:
           
           echo "Giải nén file Tweak .deb..."
           mkdir -p deb_extracted
-          tar -xf tweak.deb -C deb_extracted || ar x tweak.deb
+          cd deb_extracted
+          ar x ../tweak.deb || tar -xf ../tweak.deb
           
-          if [ -f "data.tar.lzma" ]; then tar -xf data.tar.lzma -C deb_extracted; fi
-          if [ -f "data.tar.gz" ]; then tar -xf data.tar.gz -C deb_extracted; fi
-          if [ -f "data.tar.xz" ]; then tar -xf data.tar.xz -C deb_extracted; fi
+          for tar_file in data.tar.*; do
+            if [ -f "$tar_file" ]; then
+              tar -xf "$tar_file"
+            fi
+          done
+          cd ..
           
           APP_DIR=$(ls payload_dir/Payload)
           APP_PATH="payload_dir/Payload/$APP_DIR"
           
-          echo "Chèn file dylib/tweak vào ứng dụng..."
-          find deb_extracted -name "*.dylib" -exec cp {} "$APP_PATH/" \;
-          find deb_extracted -name "*.bundle" -exec cp -r {} "$APP_PATH/" \;
+          echo "=== BẮT ĐẦU CHÈN TWEAK ==="
+          # Tìm và copy mọi file dylib
+          find deb_extracted -name "*.dylib" | while read -r dylib; do
+            echo "Tìm thấy dylib: $dylib -> Đang chèn vào App..."
+            cp -v "$dylib" "$APP_PATH/"
+          done
+          
+          # Tìm và copy mọi thư mục bundle
+          find deb_extracted -name "*.bundle" -type d | while read -r bundle; do
+            echo "Tìm thấy bundle: $bundle -> Đang chèn vào App..."
+            cp -rv "$bundle" "$APP_PATH/"
+          done
+          echo "=== HOÀN TẤT CHÈN TWEAK ==="
           
           # Đổi Bundle ID nếu người dùng nhập
           NEW_BUNDLE_ID="${{ github.event.inputs.bundle_id }}"
