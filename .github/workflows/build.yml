@@ -45,15 +45,19 @@ jobs:
           COUNTER=1
           CMD_ARGS="-i input.ipa -o Output_App.ipa"
           
-          # Sử dụng xargs hoặc đọc chuỗi an toàn để tránh lỗi cú pháp khoảng trắng
-          for url in ${{ inputs.deb_urls }}; do
-            # Bỏ qua nếu dòng trống
+          # Đọc chuỗi URL an toàn, chống lỗi ký tự đặc biệt & hoặc khoảng trắng
+          echo "${{ inputs.deb_urls }}" | xargs -n1 | while read -r url; do
             [ -z "$url" ] && continue
-            
             echo "Đang tải tweak thứ $COUNTER từ: $url"
             curl -L "$url" -o "tweak_$COUNTER.deb"
-            CMD_ARGS="$CMD_ARGS -f tweak_$COUNTER.deb"
             COUNTER=$((COUNTER + 1))
+          done
+          
+          # Gom các file deb đã tải vào lệnh cyan
+          for f in tweak_*.deb; do
+            if [ -f "$f" ]; then
+              CMD_ARGS="$CMD_ARGS -f $f"
+            fi
           done
           
           echo "CYAN_CMD=cyan $CMD_ARGS" >> $GITHUB_ENV
