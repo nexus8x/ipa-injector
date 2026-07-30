@@ -69,8 +69,9 @@ jobs:
         run: |
           eval $CYAN_CMD
           
+          # Đọc Info.plist bằng Python và xuất ra file tạm
           python3 -c "
-import plistlib, os, zipfile, glob
+import plistlib, zipfile, glob
 
 with zipfile.ZipFile('Output_App.ipa', 'r') as z:
     for filename in z.namelist():
@@ -87,18 +88,32 @@ if plist_files:
 else:
     name, ver = 'App', '1.0'
 
-custom_name = os.environ.get('CUSTOM_DISPLAY_NAME', '').strip()
-if custom_name:
-    name = custom_name
-
-safe_name = ''.join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-with open(os.environ['GITHUB_ENV'], 'a') as env:
-    env.write(f'APP_NAME={name}\n')
-    env.write(f'APP_VER={ver}\n')
-    env.write(f'SAFE_NAME={safe_name}\n')
-"
-          mv Output_App.ipa "${{ env.SAFE_NAME }}_v${{ env.APP_VER }}.ipa"
-          echo "FINAL_FILE=${{ env.SAFE_NAME }}_v${{ env.APP_VER }}.ipa" >> $GITHUB_ENV
+print(name)
+print(ver)
+" > extracted_info/app_info.txt
+          
+          # Đọc dữ liệu từ file tạm an toàn tuyệt đối
+          EXTRACTED_NAME=$(sed -n '1p' extracted_info/app_info.txt)
+          EXTRACTED_VER=$(sed -n '2p' extracted_info/app_info.txt)
+          
+          if [ -n "$CUSTOM_DISPLAY_NAME" ]; then
+            APP_NAME="$CUSTOM_DISPLAY_NAME"
+          else
+            APP_NAME="$EXTRACTED_NAME"
+          fi
+          
+          APP_VER="$EXTRACTED_VER"
+          
+          SAFE_NAME=$(echo "$APP_NAME" | tr -cd '[:alnum:]_-_ ')
+          SAFE_NAME=$(echo "$SAFE_NAME" | tr ' ' '_')
+          
+          FINAL_IPA="${SAFE_NAME}_v${APP_VER}.ipa"
+          mv Output_App.ipa "$FINAL_IPA"
+          
+          echo "FINAL_FILE=$FINAL_IPA" >> $GITHUB_ENV
+          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+          echo "APP_VER=$APP_VER" >> $GITHUB_ENV
+          echo "SAFE_NAME=$SAFE_NAME" >> $GITHUB_ENV
 
       - name: Create Release
         env:
