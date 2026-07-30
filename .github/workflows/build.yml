@@ -27,17 +27,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Setup Dependencies (No Homebrew)
         run: |
-          brew update
-          brew install ldid
-
-      - name: Download Azule and Files
-        run: |
-          echo "Đang tải công cụ Azule..."
+          echo "Đang tải công cụ ký ldid..."
+          sudo curl -sL https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid-macos-universal -o /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
+          
+          echo "Tải công cụ Azule..."
           curl -sL https://raw.githubusercontent.com/Al4EP/Azule/main/azule -o azule
           chmod +x azule
-          
+
+      - name: Download Files
+        run: |
           echo "Đang tải file IPA..."
           curl -L -o input.ipa "${{ github.event.inputs.ipa_url }}"
           
@@ -47,7 +48,6 @@ jobs:
 
       - name: Run Azule Injection
         run: |
-          # Dùng Azule chính chủ để inject, tự động vá binary và chèn cấu hình chuẩn
           ./azule -i input.ipa -o Output_App.ipa -f tweaks/ -v
 
       - name: Customize Bundle ID and App Name
