@@ -27,67 +27,50 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download Files
+      - name: Install Dependencies
         run: |
+          brew update
+          brew install ldid
+
+      - name: Download Azule and Files
+        run: |
+          echo "Đang tải công cụ Azule..."
+          curl -sL https://raw.githubusercontent.com/Al4EP/Azule/main/azule -o azule
+          chmod +x azule
+          
           echo "Đang tải file IPA..."
           curl -L -o input.ipa "${{ github.event.inputs.ipa_url }}"
           
           echo "Đang tải file Tweak (.deb)..."
-          curl -L -o tweak.deb "${{ github.event.inputs.deb_url }}"
+          mkdir -p tweaks
+          curl -L -o tweaks/tweak.deb "${{ github.event.inputs.deb_url }}"
 
-      - name: Inject Tweak and Customize
+      - name: Run Azule Injection
         run: |
-          echo "Giải nén IPA..."
-          unzip -q input.ipa -d payload_dir
-          
-          echo "Giải nén file Tweak .deb..."
-          mkdir -p deb_extracted
-          cd deb_extracted
-          ar x ../tweak.deb || tar -xf ../tweak.deb
-          
-          for tar_file in data.tar.*; do
-            if [ -f "$tar_file" ]; then
-              tar -xf "$tar_file"
+          # Dùng Azule chính chủ để inject, tự động vá binary và chèn cấu hình chuẩn
+          ./azule -i input.ipa -o Output_App.ipa -f tweaks/ -v
+
+      - name: Customize Bundle ID and App Name
+        run: |
+          if [ -n "${{ github.event.inputs.bundle_id }}" ] || [ -n "${{ github.event.inputs.app_name }}" ]; then
+            echo "Đang tùy chỉnh thông tin App..."
+            unzip -q Output_App.ipa -d custom_dir
+            APP_DIR=$(ls custom_dir/Payload)
+            APP_PATH="custom_dir/Payload/$APP_DIR"
+            
+            if [ -n "${{ github.event.inputs.bundle_id }}" ]; then
+              /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${{ github.event.inputs.bundle_id }}" "$APP_PATH/Info.plist"
             fi
-          done
-          cd ..
-          
-          APP_DIR=$(ls payload_dir/Payload)
-          APP_PATH="payload_dir/Payload/$APP_DIR"
-          
-          echo "=== BẮT ĐẦU CHÈN TWEAK ==="
-          # Tìm và copy mọi file dylib
-          find deb_extracted -name "*.dylib" | while read -r dylib; do
-            echo "Tìm thấy dylib: $dylib -> Đang chèn vào App..."
-            cp -v "$dylib" "$APP_PATH/"
-          done
-          
-          # Tìm và copy mọi thư mục bundle
-          find deb_extracted -name "*.bundle" -type d | while read -r bundle; do
-            echo "Tìm thấy bundle: $bundle -> Đang chèn vào App..."
-            cp -rv "$bundle" "$APP_PATH/"
-          done
-          echo "=== HOÀN TẤT CHÈN TWEAK ==="
-          
-          # Đổi Bundle ID nếu người dùng nhập
-          NEW_BUNDLE_ID="${{ github.event.inputs.bundle_id }}"
-          if [ -n "$NEW_BUNDLE_ID" ]; then
-            echo "Đang đổi Bundle ID thành: $NEW_BUNDLE_ID"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $NEW_BUNDLE_ID" "$APP_PATH/Info.plist"
+            
+            if [ -n "${{ github.event.inputs.app_name }}" ]; then
+              /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${{ github.event.inputs.app_name }}" "$APP_PATH/Info.plist" || true
+              /usr/libexec/PlistBuddy -c "Set :CFBundleName ${{ github.event.inputs.app_name }}" "$APP_PATH/Info.plist" || true
+            fi
+            
+            cd custom_dir
+            zip -9qr ../Output_App.ipa .
+            cd ..
           fi
-          
-          # Đổi Tên App nếu người dùng nhập
-          NEW_APP_NAME="${{ github.event.inputs.app_name }}"
-          if [ -n "$NEW_APP_NAME" ]; then
-            echo "Đang đổi Tên App thành: $NEW_APP_NAME"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $NEW_APP_NAME" "$APP_PATH/Info.plist" || true
-            /usr/libexec/PlistBuddy -c "Set :CFBundleName $NEW_APP_NAME" "$APP_PATH/Info.plist" || true
-          fi
-          
-          echo "Đóng gói lại file IPA..."
-          cd payload_dir
-          zip -9qr ../Output_App.ipa .
-          cd ..
 
       - name: Upload Patched IPA
         uses: actions/upload-artifact@v4
