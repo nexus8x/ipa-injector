@@ -39,25 +39,20 @@ jobs:
           BUNDLE_ID: ${{ inputs.bundle_id }}
         run: |
           curl -L "$IPA_URL" -o input.ipa
-          
           COUNTER=1
           CMD_ARGS="-i input.ipa -o Output_App.ipa"
-          
           for url in $DEB_URLS; do
             [ -z "$url" ] && continue
             curl -L "$url" -o "tweak_$COUNTER.deb"
             CMD_ARGS="$CMD_ARGS -f tweak_$COUNTER.deb"
             COUNTER=$((COUNTER + 1))
           done
-          
           if [ -n "$DISPLAY_NAME" ]; then
             CMD_ARGS="$CMD_ARGS -n '$DISPLAY_NAME'"
           fi
-          
           if [ -n "$BUNDLE_ID" ]; then
             CMD_ARGS="$CMD_ARGS -b $BUNDLE_ID"
           fi
-          
           echo "CYAN_CMD=cyan $CMD_ARGS" >> $GITHUB_ENV
 
       - name: Install cyan
@@ -68,11 +63,8 @@ jobs:
           CUSTOM_DISPLAY_NAME: ${{ inputs.display_name }}
         run: |
           eval $CYAN_CMD
-          
-          # Trích xuất Info.plist trực tiếp bằng Python an toàn
           python3 -c "
 import plistlib, zipfile, glob, os
-
 name, ver = 'App', '1.0.0'
 try:
     with zipfile.ZipFile('Output_App.ipa', 'r') as z:
@@ -80,7 +72,6 @@ try:
             if 'Payload/' in filename and filename.endswith('Info.plist'):
                 z.extract(filename, 'extracted_info')
                 break
-    
     plist_files = glob.glob('extracted_info/Payload/**/Info.plist', recursive=True)
     if plist_files:
         with open(plist_files[0], 'rb') as f:
@@ -89,24 +80,18 @@ try:
         ver = pl.get('CFBundleShortVersionString') or '1.0.0'
 except Exception as e:
     print(f'Warning: {e}')
-
 custom = os.environ.get('CUSTOM_DISPLAY_NAME', '').strip()
 if custom:
     name = custom
-
 print(name)
 print(ver)
 " > app_info.txt
-
           EXTRACTED_NAME=$(sed -n '1p' app_info.txt)
           EXTRACTED_VER=$(sed -n '2p' app_info.txt)
-          
           SAFE_NAME=$(echo "$EXTRACTED_NAME" | tr -cd '[:alnum:]_-_ ')
           SAFE_NAME=$(echo "$SAFE_NAME" | tr ' ' '_')
-          
           FINAL_IPA="${SAFE_NAME}_v${EXTRACTED_VER}.ipa"
           mv Output_App.ipa "$FINAL_IPA"
-          
           echo "FINAL_FILE=$FINAL_IPA" >> $GITHUB_ENV
           echo "APP_NAME=$EXTRACTED_NAME" >> $GITHUB_ENV
           echo "APP_VER=$EXTRACTED_VER" >> $GITHUB_ENV
@@ -120,5 +105,4 @@ print(ver)
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$TAG" || true
           git push origin "$TAG" || true
-          
           gh release create "$TAG" "${{ env.FINAL_FILE }}" --title "${{ env.APP_NAME }} v${{ env.APP_VER }}" --notes "App Name: ${{ env.APP_NAME }} | Version: ${{ env.APP_VER }} | Injected via GitHub Actions"
