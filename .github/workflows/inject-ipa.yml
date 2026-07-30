@@ -11,6 +11,16 @@ on:
         description: 'URL direct Debs'
         required: true
         type: string
+      display_name:
+        description: 'Tên App mới (ĐỂ TRỐNG NẾU GIỮ NGUYÊN)'
+        required: false
+        default: ''
+        type: string
+      bundle_id:
+        description: 'Bundle ID mới (ĐỂ TRỐNG NẾU GIỮ NGUYÊN)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   build-and-release:
@@ -24,6 +34,7 @@ jobs:
       - name: Download Files
         run: |
           curl -L "${{ inputs.ipa_url }}" -o input.ipa
+          
           COUNTER=1
           CMD_ARGS="-i input.ipa -o Output_App.ipa"
           for url in ${{ inputs.deb_urls }}; do
@@ -32,6 +43,15 @@ jobs:
             CMD_ARGS="$CMD_ARGS -f tweak_$COUNTER.deb"
             COUNTER=$((COUNTER + 1))
           done
+          
+          if [ -n "${{ inputs.display_name }}" ]; then
+            CMD_ARGS="$CMD_ARGS -n '${{ inputs.display_name }}'"
+          fi
+          
+          if [ -n "${{ inputs.bundle_id }}" ]; then
+            CMD_ARGS="$CMD_ARGS -b ${{ inputs.bundle_id }}"
+          fi
+          
           echo "CYAN_CMD=cyan $CMD_ARGS" >> $GITHUB_ENV
 
       - name: Install cyan
@@ -42,8 +62,6 @@ jobs:
           eval $CYAN_CMD
           mv Output_App.ipa Injected_App.ipa
           echo "FINAL_FILE=Injected_App.ipa" >> $GITHUB_ENV
-          echo "APP_NAME=CustomApp" >> $GITHUB_ENV
-          echo "APP_VER=1.0.0" >> $GITHUB_ENV
 
       - name: Create Release
         env:
@@ -54,4 +72,4 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$TAG" || true
           git push origin "$TAG" || true
-          gh release create "$TAG" "Injected_App.ipa" --title "Custom App v1.0.0" --notes "Injected via GitHub Actions"
+          gh release create "$TAG" "Injected_App.ipa" --title "Injected App v1.0.0" --notes "Injected via GitHub Actions with custom options."
