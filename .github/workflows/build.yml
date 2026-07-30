@@ -14,7 +14,7 @@ on:
 
 jobs:
   build:
-- runs-on: macos-latest
+    runs-on: macos-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -33,13 +33,11 @@ jobs:
           unzip -q input.ipa -d payload_dir
           dpkg-deb -R tweak.deb deb_dir
           
-          # Tìm thư mục .app bên trong Payload
           APP_DIR=$(ls payload_dir/Payload)
           
           echo "Đang chèn tweak vào ứng dụng..."
           mkdir -p "payload_dir/Payload/$APP_DIR/Frameworks"
           
-          # Copy các file framework/dylib từ tweak vào app
           if [ -d "deb_dir/Library/MobileSubstrate/DynamicLibraries" ]; then
             cp -r deb_dir/Library/MobileSubstrate/DynamicLibraries/* "payload_dir/Payload/$APP_DIR/"
           elif [ -d "deb_dir/usr/lib" ]; then
