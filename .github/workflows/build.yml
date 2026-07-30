@@ -1,7 +1,16 @@
 name: Auto Inject IPA and Tweak
 
 on:
-  workflow_dispatch: # Cho phép bấm nút chạy thủ công trên web
+  workflow_dispatch:
+    inputs:
+      ipa_url:
+        description: 'URL to the decrypted IPA file'
+        required: true
+        type: string
+      deb_url:
+        description: 'URL to the Tweak (.deb) file'
+        required: true
+        type: string
 
 jobs:
   build:
@@ -13,23 +22,17 @@ jobs:
       - name: Install Azule
         run: brew install al4c/tap/azule
 
-      - name: Download Files from Direct Links
+      - name: Download Files from Inputs
         run: |
-          # --- DÁN LINK DIRECT CỦA BẠN VÀO DƯỚI ĐÂY ---
-          IPA_URL="DIEN_LINK_IPA_VAO_DAY"
-          DEB_URL="DIEN_LINK_DEB_VAO_DAY"
-          # ---------------------------------------------
-
-          echo "Đang tải file IPA..."
-          curl -L -o input.ipa "$IPA_URL"
+          echo "Đang tải file IPA từ link bạn nhập..."
+          curl -L -o input.ipa "${{ github.event.inputs.ipa_url }}"
           
           echo "Tạo thư mục tweaks và tải file .deb..."
           mkdir -p tweaks
-          curl -L -o tweaks/tweak.deb "$DEB_URL"
+          curl -L -o tweaks/tweak.deb "${{ github.event.inputs.deb_url }}"
 
       - name: Run Injection
         run: |
-          # Tiến hành inject tweak vào IPA
           azule -i input.ipa -o Output_App.ipa -f tweaks/*.deb -v
 
       - name: Upload Patched IPA
