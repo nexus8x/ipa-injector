@@ -19,10 +19,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Azule directly
+      - name: Install dependencies & Azule
         run: |
-          # Tải trực tiếp công cụ Azule chính hãng
-          sudo curl -L https://raw.githubusercontent.com/Al4EP/Azule/main/azule -o /usr/local/bin/azule
+          brew install ldid unzip
+          # Tải trực tiếp Azule phiên bản chuẩn từ nhánh chính
+          sudo curl -sL https://raw.githubusercontent.com/Al4EP/Azule/main/azule -o /usr/local/bin/azule
           sudo chmod +x /usr/local/bin/azule
 
       - name: Download Files from Inputs
