@@ -69,33 +69,59 @@ jobs:
         run: |
           eval $CYAN_CMD
           
-          # Đọc Info.plist bằng Python và xuất ra file tạm
-          python3 -c "
-import plistlib, zipfile, glob
-
-with zipfile.ZipFile('Output_App.ipa', 'r') as z:
-    for filename in z.namelist():
-        if 'Payload/' in filename and filename.endswith('Info.plist'):
-            z.extract(filename, 'extracted_info')
-            break
-
-plist_files = glob.glob('extracted_info/Payload/**/Info.plist', recursive=True)
-if plist_files:
-    with open(plist_files[0], 'rb') as f:
-        pl = plistlib.load(f)
-    name = pl.get('CFBundleDisplayName') or pl.get('CFBundleName') or 'App'
-    ver = pl.get('CFBundleShortVersionString') or '1.0'
-else:
-    name, ver = 'App', '1.0'
-
-print(name)
-print(ver)
-" > extracted_info/app_info.txt
+          # Tự động giải nén và đọc tên/version thật từ Info.plist bằng công cụ sẵn có trên macOS
+          mkdir -p temp_extracted
+          unzip -q Output_App.ipa -d temp_extracted
           
-          # Đọc dữ liệu từ file tạm an toàn tuyệt đối
-          EXTRACTED_NAME=$(sed -n '1p' extracted_info/app_info.txt)
-          EXTRACTED_VER=$(sed -n '2p' extracted_info/app_info.txt)
+          PLIST_PATH=$(find temp_extracted/Payload -name "Info.plist" -maxdepth 3 | head -n 1)
           
+          if [ -f "$PLIST_PATH" ]; then
+            # Dùng plutil (công cụ native của macOS) để đọc file plist ra định dạng XML/Text dễ lọc
+            plutil -convert xml1 "$PLIST_PATH" -o parsed_plist.xml
+            
+            # Trích xuất CFBundleDisplayName hoặc CFBundleName
+            EXTRACTED_NAME=$(python3 -c "
+import xml.etree.ElementTree as ET
+try:
+    tree = ET.parse('parsed_plist.xml')
+    root = tree.getroot()
+    d = root[0]
+    keys = d.findall('key')
+    name = 'App'
+    ver = '1.0'
+    for i, k in enumerate(keys):
+        if k.text == 'CFBundleDisplayName' or k.text == 'CFBundleName':
+            name = d[i+1].text
+        if k.text == 'CFBundleShortVersionString':
+            ver = d[i+1].text
+    print(name)
+    print(ver)
+except:
+    print('App')
+    print('1.0')
+" | sed -n '1p')
+            
+            EXTRACTED_VER=$(python3 -c "
+import xml.etree.ElementTree as ET
+try:
+    tree = ET.parse('parsed_plist.xml')
+    root = tree.getroot()
+    d = root[0]
+    keys = d.findall('key')
+    ver = '1.0'
+    for i, k in enumerate(keys):
+        if k.text == 'CFBundleShortVersionString':
+            ver = d[i+1].text
+    print(ver)
+except:
+    print('1.0')
+" | sed -n '1p')
+          else
+            EXTRACTED_NAME="App"
+            EXTRACTED_VER="1.0"
+          fi
+          
+          # Ưu tiên lấy tên bạn tự nhập ở ô display_name, nếu để trống thì lấy tên thật của app
           if [ -n "$CUSTOM_DISPLAY_NAME" ]; then
             APP_NAME="$CUSTOM_DISPLAY_NAME"
           else
@@ -113,7 +139,6 @@ print(ver)
           echo "FINAL_FILE=$FINAL_IPA" >> $GITHUB_ENV
           echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
           echo "APP_VER=$APP_VER" >> $GITHUB_ENV
-          echo "SAFE_NAME=$SAFE_NAME" >> $GITHUB_ENV
 
       - name: Create Release
         env:
