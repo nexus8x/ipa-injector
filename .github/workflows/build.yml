@@ -1,4 +1,4 @@
-name: Auto Inject IPA and Tweak Custom
+name: Auto Inject IPA and Multiple Tweaks
 
 on:
   workflow_dispatch:
@@ -7,8 +7,8 @@ on:
         description: 'URL direct tới file IPA gốc (Decrypted)'
         required: true
         type: string
-      deb_url:
-        description: 'URL direct tới file Tweak (.deb)'
+      deb_urls:
+        description: 'Danh sách URL direct tới các file .deb (Cách nhau bằng khoảng trắng)'
         required: true
         type: string
       display_name:
@@ -21,47 +21,87 @@ on:
         default: ''
         required: false
         type: string
+      tag_name:
+        description: 'Tên Tag/Version để Release (Ví dụ: v1.0.0)'
+        required: true
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-and-release:
     runs-on: macos-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download IPA and Tweak
+      - name: Download IPA and Multiple Tweaks
         run: |
-          echo "Đang tải file IPA từ link direct..."
+          echo "Đang tải file IPA..."
           wget "${{ inputs.ipa_url }}" --no-verbose -O input.ipa
           
-          echo "Đang tải file Tweak (.deb) từ link direct..."
-          wget "${{ inputs.deb_url }}" --no-verbose -O tweak.deb
+          echo "Đang tải danh sách file Tweak..."
+          COUNTER=1
+          CMD_ARGS="-i input.ipa -o Output_App.ipa"
+          
+          for url in ${{ inputs.deb_urls }}; do
+            echo "Đang tải tweak thứ $COUNTER từ: $url"
+            wget "$url" --no-verbose -O "tweak_$COUNTER.deb"
+            CMD_ARGS="$CMD_ARGS -f tweak_$COUNTER.deb"
+            COUNTER=$((COUNTER + 1))
+          done
+          
+          echo "CYAN_CMD=cyan $CMD_ARGS" >> $GITHUB_ENV
 
       - name: Install cyan tool
         run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
-      - name: Inject Tweak and Customize App
+      - name: Inject Tweaks and Customize App
         run: |
-          # Xây dựng câu lệnh cyan với các tùy chọn tương ứng
-          CMD="cyan -i input.ipa -o Output_App.ipa -f tweak.deb"
+          FINAL_CMD="$CYAN_CMD"
           
           if [ -n "${{ inputs.display_name }}" ]; then
-            CMD="$CMD -n '${{ inputs.display_name }}'"
+            FINAL_CMD="$FINAL_CMD -n '${{ inputs.display_name }}'"
           fi
           
           if [ -n "${{ inputs.bundle_id }}" ]; then
-            CMD="$CMD -b ${{ inputs.bundle_id }}"
+            FINAL_CMD="$FINAL_CMD -b ${{ inputs.bundle_id }}"
           fi
           
-          echo "Thực thi lệnh: $CMD"
-          eval $CMD
+          echo "Thực thi: $FINAL_CMD"
+          eval $FINAL_CMD
 
-      - name: Upload Patched IPA Artifact
-        uses: actions/upload-artifact@v4
+      - name: Create Git Tag Manually
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ inputs.tag_name }}
+          git push origin ${{ inputs.tag_name }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: App-Da-Inject
-          path: Output_App.ipa
+          files: |
+            Output_App.ipa
+          tag_name: ${{ inputs.tag_name }}
+          name: "${{ inputs.display_name != '' && inputs.display_name || 'Custom App' }} ${{ inputs.tag_name }}"
+          body: |
+            ## App Release Info
+            
+            * **App Name:** `${{ inputs.display_name != '' && inputs.display_name || 'Giữ nguyên' }}`
+            * **Bundle ID:** `${{ inputs.bundle_id != '' && inputs.bundle_id || 'Giữ nguyên' }}`
+            * **Version/Tag:** `${{ inputs.tag_name }}`
+            * **Platform:** `iOS`
+            
+            ---
+            
+            ## Must read:
+            * File IPA đã được tự động inject toàn bộ danh sách tweak và build thông qua GitHub Actions.
+            * Hãy ký (sign) file `Output_App.ipa` bằng chứng chỉ cá nhân trước khi cài đặt lên thiết bị.
+          draft: false
+          prerelease: false
