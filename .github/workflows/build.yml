@@ -21,10 +21,6 @@ on:
         default: ''
         required: false
         type: string
-      tag_name:
-        description: 'Tên Tag/Version để Release (Ví dụ: v1.0.0)'
-        required: true
-        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -43,15 +39,19 @@ jobs:
       - name: Download IPA and Multiple Tweaks
         run: |
           echo "Đang tải file IPA..."
-          wget "${{ inputs.ipa_url }}" --no-verbose -O input.ipa
+          curl -L "${{ inputs.ipa_url }}" -o input.ipa
           
           echo "Đang tải danh sách file Tweak..."
           COUNTER=1
           CMD_ARGS="-i input.ipa -o Output_App.ipa"
           
+          # Sử dụng xargs hoặc đọc chuỗi an toàn để tránh lỗi cú pháp khoảng trắng
           for url in ${{ inputs.deb_urls }}; do
+            # Bỏ qua nếu dòng trống
+            [ -z "$url" ] && continue
+            
             echo "Đang tải tweak thứ $COUNTER từ: $url"
-            wget "$url" --no-verbose -O "tweak_$COUNTER.deb"
+            curl -L "$url" -o "tweak_$COUNTER.deb"
             CMD_ARGS="$CMD_ARGS -f tweak_$COUNTER.deb"
             COUNTER=$((COUNTER + 1))
           done
@@ -76,32 +76,36 @@ jobs:
           echo "Thực thi: $FINAL_CMD"
           eval $FINAL_CMD
 
-      - name: Create Git Tag Manually
+      - name: Generate Auto Tag & Release
+        id: auto_tag
         run: |
+          AUTO_TAG="v$(date +'%Y.%m.%d-%H%M')"
+          echo "tag=$AUTO_TAG" >> $GITHUB_OUTPUT
+          
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ inputs.tag_name }}
-          git push origin ${{ inputs.tag_name }}
+          git tag "$AUTO_TAG"
+          git push origin "$AUTO_TAG"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             Output_App.ipa
-          tag_name: ${{ inputs.tag_name }}
-          name: "${{ inputs.display_name != '' && inputs.display_name || 'Custom App' }} ${{ inputs.tag_name }}"
+          tag_name: ${{ steps.auto_tag.outputs.tag }}
+          name: "${{ inputs.display_name != '' && inputs.display_name || 'Custom App' }} ${{ steps.auto_tag.outputs.tag }}"
           body: |
             ## App Release Info
             
             * **App Name:** `${{ inputs.display_name != '' && inputs.display_name || 'Giữ nguyên' }}`
             * **Bundle ID:** `${{ inputs.bundle_id != '' && inputs.bundle_id || 'Giữ nguyên' }}`
-            * **Version/Tag:** `${{ inputs.tag_name }}`
+            * **Version:** `${{ steps.auto_tag.outputs.tag }}`
             * **Platform:** `iOS`
             
             ---
             
             ## Must read:
-            * File IPA đã được tự động inject toàn bộ danh sách tweak và build thông qua GitHub Actions.
-            * Hãy ký (sign) file `Output_App.ipa` bằng chứng chỉ cá nhân trước khi cài đặt lên thiết bị.
+            * File IPA được build tự động và gán mác thời gian.
+            * Hãy ký (sign) file `Output_App.ipa` trước khi cài đặt.
           draft: false
           prerelease: false
