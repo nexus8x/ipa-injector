@@ -1,0 +1,39 @@
+name: Auto Inject IPA and Tweak
+
+on:
+  workflow_dispatch: # Cho phép bấm nút chạy thủ công trên web
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install Azule
+        run: brew install al4c/tap/azule
+
+      - name: Download Files from Direct Links
+        run: |
+          # --- DÁN LINK DIRECT CỦA BẠN VÀO DƯỚI ĐÂY ---
+          IPA_URL="DIEN_LINK_IPA_VAO_DAY"
+          DEB_URL="DIEN_LINK_DEB_VAO_DAY"
+          # ---------------------------------------------
+
+          echo "Đang tải file IPA..."
+          curl -L -o input.ipa "$IPA_URL"
+          
+          echo "Tạo thư mục tweaks và tải file .deb..."
+          mkdir -p tweaks
+          curl -L -o tweaks/tweak.deb "$DEB_URL"
+
+      - name: Run Injection
+        run: |
+          # Tiến hành inject tweak vào IPA
+          azule -i input.ipa -o Output_App.ipa -f tweaks/*.deb -v
+
+      - name: Upload Patched IPA
+        uses: actions/upload-artifact@v3
+        with:
+          name: Final-Patched-IPA
+          path: Output_App.ipa
