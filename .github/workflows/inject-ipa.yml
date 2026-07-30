@@ -124,7 +124,7 @@ with open(os.environ['GITHUB_ENV'], 'a') as env_file:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$AUTO_TAG"
-          git push origin "$AUTO_TAG"
+          git push origin "$AUTO_TAG" || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
