@@ -43,19 +43,18 @@ jobs:
           eval $CYAN_CMD
           
           python3 -c "
-import plistlib, os, glob
-plist_path = glob.glob('extracted_app/Payload/*/Info.plist', recursive=True) or glob.glob('Payload/*/Info.plist')
-if not plist_path:
-    import zipfile
-    with zipfile.ZipFile('Output_App.ipa', 'r') as z:
-        for f in z.namelist():
-            if f.endswith('Info.plist'):
-                z.extract(f, 'temp_plist')
-                break
-    plist_path = glob.glob('temp_plist/**/Info.plist', recursive=True)
+import plistlib, os, zipfile, glob
 
-if plist_path:
-    with open(plist_path[0], 'rb') as f:
+# Giải nén trực tiếp file Output_App.ipa vừa build để đọc Info.plist chuẩn xác 100%
+with zipfile.ZipFile('Output_App.ipa', 'r') as z:
+    for filename in z.namelist():
+        if 'Payload/' in filename and filename.endswith('Info.plist'):
+            z.extract(filename, 'extracted_info')
+            break
+
+plist_files = glob.glob('extracted_info/Payload/**/Info.plist', recursive=True)
+if plist_files:
+    with open(plist_files[0], 'rb') as f:
         pl = plistlib.load(f)
     name = pl.get('CFBundleDisplayName') or pl.get('CFBundleName') or 'App'
     ver = pl.get('CFBundleShortVersionString') or '1.0'
@@ -78,7 +77,7 @@ with open(os.environ['GITHUB_ENV'], 'a') as env:
           TAG="v${{ env.APP_VER }}-${{ github.run_number }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$TAG"
-          git push origin "$TAG"
+          git tag "$TAG" || true
+          git push origin "$TAG" || true
           
           gh release create "$TAG" "${{ env.FINAL_FILE }}" --title "${{ env.APP_NAME }} ${{ env.APP_VER }}" --notes "App Name: ${{ env.APP_NAME }} | Version: ${{ env.APP_VER }}"
