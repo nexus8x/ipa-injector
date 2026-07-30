@@ -69,18 +69,47 @@ jobs:
         run: |
           eval $CYAN_CMD
           
-          APP_NAME="${CUSTOM_DISPLAY_NAME:-InjectedApp}"
-          VERSION="1.0.0"
+          # Trích xuất Info.plist trực tiếp bằng Python an toàn
+          python3 -c "
+import plistlib, zipfile, glob, os
+
+name, ver = 'App', '1.0.0'
+try:
+    with zipfile.ZipFile('Output_App.ipa', 'r') as z:
+        for filename in z.namelist():
+            if 'Payload/' in filename and filename.endswith('Info.plist'):
+                z.extract(filename, 'extracted_info')
+                break
+    
+    plist_files = glob.glob('extracted_info/Payload/**/Info.plist', recursive=True)
+    if plist_files:
+        with open(plist_files[0], 'rb') as f:
+            pl = plistlib.load(f)
+        name = pl.get('CFBundleDisplayName') or pl.get('CFBundleName') or 'App'
+        ver = pl.get('CFBundleShortVersionString') or '1.0.0'
+except Exception as e:
+    print(f'Warning: {e}')
+
+custom = os.environ.get('CUSTOM_DISPLAY_NAME', '').strip()
+if custom:
+    name = custom
+
+print(name)
+print(ver)
+" > app_info.txt
+
+          EXTRACTED_NAME=$(sed -n '1p' app_info.txt)
+          EXTRACTED_VER=$(sed -n '2p' app_info.txt)
           
-          SAFE_NAME=$(echo "$APP_NAME" | tr -cd '[:alnum:]_-_ ')
+          SAFE_NAME=$(echo "$EXTRACTED_NAME" | tr -cd '[:alnum:]_-_ ')
           SAFE_NAME=$(echo "$SAFE_NAME" | tr ' ' '_')
           
-          FINAL_IPA="${SAFE_NAME}_v${VERSION}.ipa"
+          FINAL_IPA="${SAFE_NAME}_v${EXTRACTED_VER}.ipa"
           mv Output_App.ipa "$FINAL_IPA"
           
           echo "FINAL_FILE=$FINAL_IPA" >> $GITHUB_ENV
-          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
-          echo "APP_VER=$VERSION" >> $GITHUB_ENV
+          echo "APP_NAME=$EXTRACTED_NAME" >> $GITHUB_ENV
+          echo "APP_VER=$EXTRACTED_VER" >> $GITHUB_ENV
 
       - name: Create Release
         env:
