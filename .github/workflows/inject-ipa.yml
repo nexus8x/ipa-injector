@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       deb_urls:
-        description: 'URL direct Debs (cach nhau khoang trang)'
+        description: 'URL direct Debs'
         required: true
         type: string
 
