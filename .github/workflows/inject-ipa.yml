@@ -24,7 +24,6 @@ jobs:
       - name: Download Files
         run: |
           curl -L "${{ inputs.ipa_url }}" -o input.ipa
-          
           COUNTER=1
           CMD_ARGS="-i input.ipa -o Output_App.ipa"
           for url in ${{ inputs.deb_urls }}; do
@@ -41,43 +40,18 @@ jobs:
       - name: Inject and Process
         run: |
           eval $CYAN_CMD
-          
-          python3 -c "
-import plistlib, os, zipfile, glob
-
-# Giải nén trực tiếp file Output_App.ipa vừa build để đọc Info.plist chuẩn xác 100%
-with zipfile.ZipFile('Output_App.ipa', 'r') as z:
-    for filename in z.namelist():
-        if 'Payload/' in filename and filename.endswith('Info.plist'):
-            z.extract(filename, 'extracted_info')
-            break
-
-plist_files = glob.glob('extracted_info/Payload/**/Info.plist', recursive=True)
-if plist_files:
-    with open(plist_files[0], 'rb') as f:
-        pl = plistlib.load(f)
-    name = pl.get('CFBundleDisplayName') or pl.get('CFBundleName') or 'App'
-    ver = pl.get('CFBundleShortVersionString') or '1.0'
-else:
-    name, ver = 'App', '1.0'
-
-safe_name = ''.join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-with open(os.environ['GITHUB_ENV'], 'a') as env:
-    env.write(f'APP_NAME={name}\n')
-    env.write(f'APP_VER={ver}\n')
-    env.write(f'SAFE_NAME={safe_name}\n')
-"
-          mv Output_App.ipa "${{ env.SAFE_NAME }}_v${{ env.APP_VER }}.ipa"
-          echo "FINAL_FILE=${{ env.SAFE_NAME }}_v${{ env.APP_VER }}.ipa" >> $GITHUB_ENV
+          mv Output_App.ipa Injected_App.ipa
+          echo "FINAL_FILE=Injected_App.ipa" >> $GITHUB_ENV
+          echo "APP_NAME=CustomApp" >> $GITHUB_ENV
+          echo "APP_VER=1.0.0" >> $GITHUB_ENV
 
       - name: Create Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v${{ env.APP_VER }}-${{ github.run_number }}"
+          TAG="v1.0.0-${{ github.run_number }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "$TAG" || true
           git push origin "$TAG" || true
-          
-          gh release create "$TAG" "${{ env.FINAL_FILE }}" --title "${{ env.APP_NAME }} ${{ env.APP_VER }}" --notes "App Name: ${{ env.APP_NAME }} | Version: ${{ env.APP_VER }}"
+          gh release create "$TAG" "Injected_App.ipa" --title "Custom App v1.0.0" --notes "Injected via GitHub Actions"
