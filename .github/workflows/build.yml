@@ -19,15 +19,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies & Azule
-        run: |
-          brew install ldid unzip
-          # Tải trực tiếp Azule phiên bản chuẩn từ nhánh chính
-          sudo curl -sL https://raw.githubusercontent.com/Al4EP/Azule/main/azule -o /usr/local/bin/azule
-          sudo chmod +x /usr/local/bin/azule
+      - name: Install dependencies
+        run: brew install ldid unzip
 
-      - name: Download Files from Inputs
+      - name: Download Azule and Files
         run: |
+          # Tải công cụ Azule trực tiếp về thư mục làm việc
+          curl -sL https://raw.githubusercontent.com/Al4EP/Azule/main/azule -o azule
+          chmod +x azule
+          
           echo "Đang tải file IPA từ link bạn nhập..."
           curl -L -o input.ipa "${{ github.event.inputs.ipa_url }}"
           
@@ -37,7 +37,8 @@ jobs:
 
       - name: Run Injection
         run: |
-          azule -i input.ipa -o Output_App.ipa -f tweaks/*.deb -v
+          # Chạy Azule bằng đường dẫn nội bộ ./azule
+          ./azule -i input.ipa -o Output_App.ipa -f tweaks/*.deb -v
 
       - name: Upload Patched IPA
         uses: actions/upload-artifact@v4
