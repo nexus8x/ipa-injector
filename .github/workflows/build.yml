@@ -36,7 +36,7 @@ jobs:
           azule -i input.ipa -o Output_App.ipa -f tweaks/*.deb -v
 
       - name: Upload Patched IPA
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Final-Patched-IPA
           path: Output_App.ipa
