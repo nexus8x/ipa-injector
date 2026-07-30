@@ -61,36 +61,20 @@ jobs:
         run: |
           eval $CYAN_CMD
           
-          python3 -c "
-import plistlib, os, zipfile, glob
-
-with zipfile.ZipFile('Output_App.ipa', 'r') as z:
-    for filename in z.namelist():
-        if 'Payload/' in filename and filename.endswith('Info.plist'):
-            z.extract(filename, 'extracted_info')
-            break
-
-plist_files = glob.glob('extracted_info/Payload/**/Info.plist', recursive=True)
-if plist_files:
-    with open(plist_files[0], 'rb') as f:
-        pl = plistlib.load(f)
-    name = pl.get('CFBundleDisplayName') or pl.get('CFBundleName') or 'App'
-    ver = pl.get('CFBundleShortVersionString') or '1.0'
-else:
-    name, ver = 'App', '1.0'
-
-custom_name = '${{ inputs.display_name }}'
-if custom_name.strip():
-    name = custom_name.strip()
-
-safe_name = ''.join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-with open(os.environ['GITHUB_ENV'], 'a') as env:
-    env.write(f'APP_NAME={name}\n')
-    env.write(f'APP_VER={ver}\n')
-    env.write(f'SAFE_NAME={safe_name}\n')
-"
-          mv Output_App.ipa "${{ env.SAFE_NAME }}_v${{ env.APP_VER }}.ipa"
-          echo "FINAL_FILE=${{ env.SAFE_NAME }}_v${{ env.APP_VER }}.ipa" >> $GITHUB_ENV
+          APP_NAME="${{ inputs.display_name }}"
+          if [ -z "$APP_NAME" ]; then
+            APP_NAME="InjectedApp"
+          fi
+          
+          SAFE_NAME=$(echo "$APP_NAME" | tr -cd '[:alnum:]_-_ ')
+          SAFE_NAME=$(echo "$SAFE_NAME" | tr ' ' '_')
+          
+          VERSION="1.0.0"
+          
+          mv Output_App.ipa "${SAFE_NAME}_v${VERSION}.ipa"
+          echo "FINAL_FILE=${SAFE_NAME}_v${VERSION}.ipa" >> $GITHUB_ENV
+          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+          echo "APP_VER=$VERSION" >> $GITHUB_ENV
 
       - name: Create Release
         env:
