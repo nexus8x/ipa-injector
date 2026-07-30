@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       deb_urls:
-        description: 'URL direct Debs'
+        description: 'URL direct Debs (Mỗi URL một dòng hoặc cách nhau bằng dấu cách)'
         required: true
         type: string
       display_name:
@@ -37,9 +37,12 @@ jobs:
           
           COUNTER=1
           CMD_ARGS="-i input.ipa -o Output_App.ipa"
+          
+          # Đọc các URL deb an toàn không bị lỗi ký tự đặc biệt
           for url in ${{ inputs.deb_urls }}; do
-            [ -z "$url" ] && continue
-            curl -L "$url" -o "tweak_$COUNTER.deb"
+            clean_url=$(echo "$url" | xargs)
+            [ -z "$clean_url" ] && continue
+            curl -L "$clean_url" -o "tweak_$COUNTER.deb"
             CMD_ARGS="$CMD_ARGS -f tweak_$COUNTER.deb"
             COUNTER=$((COUNTER + 1))
           done
