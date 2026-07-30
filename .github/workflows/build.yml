@@ -17,10 +17,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Install Azule
-        run: brew install al4c/tap/azule
+      - name: Install Azule directly
+        run: |
+          # Tải trực tiếp công cụ Azule chính hãng
+          sudo curl -L https://raw.githubusercontent.com/Al4EP/Azule/main/azule -o /usr/local/bin/azule
+          sudo chmod +x /usr/local/bin/azule
 
       - name: Download Files from Inputs
         run: |
