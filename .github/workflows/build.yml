@@ -1,24 +1,30 @@
-name: Auto Inject IPA and Tweak
+name: Auto Inject IPA and Tweak Custom
 
 on:
   workflow_dispatch:
     inputs:
       ipa_url:
-        description: 'URL to the decrypted IPA file'
+        description: 'URL direct tới file IPA gốc (Decrypted)'
         required: true
         type: string
       deb_url:
-        description: 'URL to the Tweak (.deb) file'
+        description: 'URL direct tới file Tweak (.deb)'
         required: true
+        type: string
+      display_name:
+        description: 'Tên App mới (Để trống nếu giữ nguyên)'
+        default: ''
+        required: false
         type: string
       bundle_id:
         description: 'Bundle ID mới (Để trống nếu giữ nguyên)'
+        default: ''
         required: false
         type: string
-      app_name:
-        description: 'Tên App mới (Để trống nếu giữ nguyên)'
-        required: false
-        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -27,52 +33,34 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Dependencies (No Homebrew)
+      - name: Download IPA and Tweak
         run: |
-          echo "Đang tải công cụ ký ldid..."
-          sudo curl -sL https://github.com/ProcursusTeam/ldid/releases/latest/download/ldid-macos-universal -o /usr/local/bin/ldid
-          sudo chmod +x /usr/local/bin/ldid
+          echo "Đang tải file IPA từ link direct..."
+          wget "${{ inputs.ipa_url }}" --no-verbose -O input.ipa
           
-          echo "Tải công cụ Azule..."
-          curl -sL https://raw.githubusercontent.com/Al4EP/Azule/main/azule -o azule
-          chmod +x azule
+          echo "Đang tải file Tweak (.deb) từ link direct..."
+          wget "${{ inputs.deb_url }}" --no-verbose -O tweak.deb
 
-      - name: Download Files
+      - name: Install cyan tool
+        run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+
+      - name: Inject Tweak and Customize App
         run: |
-          echo "Đang tải file IPA..."
-          curl -L -o input.ipa "${{ github.event.inputs.ipa_url }}"
+          # Xây dựng câu lệnh cyan với các tùy chọn tương ứng
+          CMD="cyan -i input.ipa -o Output_App.ipa -f tweak.deb"
           
-          echo "Đang tải file Tweak (.deb)..."
-          mkdir -p tweaks
-          curl -L -o tweaks/tweak.deb "${{ github.event.inputs.deb_url }}"
-
-      - name: Run Azule Injection
-        run: |
-          ./azule -i input.ipa -o Output_App.ipa -f tweaks/ -v
-
-      - name: Customize Bundle ID and App Name
-        run: |
-          if [ -n "${{ github.event.inputs.bundle_id }}" ] || [ -n "${{ github.event.inputs.app_name }}" ]; then
-            echo "Đang tùy chỉnh thông tin App..."
-            unzip -q Output_App.ipa -d custom_dir
-            APP_DIR=$(ls custom_dir/Payload)
-            APP_PATH="custom_dir/Payload/$APP_DIR"
-            
-            if [ -n "${{ github.event.inputs.bundle_id }}" ]; then
-              /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${{ github.event.inputs.bundle_id }}" "$APP_PATH/Info.plist"
-            fi
-            
-            if [ -n "${{ github.event.inputs.app_name }}" ]; then
-              /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${{ github.event.inputs.app_name }}" "$APP_PATH/Info.plist" || true
-              /usr/libexec/PlistBuddy -c "Set :CFBundleName ${{ github.event.inputs.app_name }}" "$APP_PATH/Info.plist" || true
-            fi
-            
-            cd custom_dir
-            zip -9qr ../Output_App.ipa .
-            cd ..
+          if [ -n "${{ inputs.display_name }}" ]; then
+            CMD="$CMD -n '${{ inputs.display_name }}'"
           fi
+          
+          if [ -n "${{ inputs.bundle_id }}" ]; then
+            CMD="$CMD -b ${{ inputs.bundle_id }}"
+          fi
+          
+          echo "Thực thi lệnh: $CMD"
+          eval $CMD
 
-      - name: Upload Patched IPA
+      - name: Upload Patched IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: App-Da-Inject
