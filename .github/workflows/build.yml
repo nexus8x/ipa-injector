@@ -14,27 +14,42 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+- runs-on: macos-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download Azule and Files
+      - name: Download Files
         run: |
-          echo "Đang tải công cụ Azule..."
-          curl -sL https://raw.githubusercontent.com/Al4EP/Azule/main/azule -o azule
-          chmod +x azule
-          
-          echo "Đang tải file IPA từ link bạn nhập..."
+          echo "Đang tải file IPA..."
           curl -L -o input.ipa "${{ github.event.inputs.ipa_url }}"
           
-          echo "Tạo thư mục tweaks và tải file .deb..."
-          mkdir -p tweaks
-          curl -L -o tweaks/tweak.deb "${{ github.event.inputs.deb_url }}"
+          echo "Đang tải file Tweak (.deb)..."
+          curl -L -o tweak.deb "${{ github.event.inputs.deb_url }}"
 
-      - name: Run Injection
+      - name: Inject Tweak (Manual Method)
         run: |
-          ./azule -i input.ipa -o Output_App.ipa -f tweaks/*.deb -v
+          echo "Giải nén IPA và Tweak..."
+          unzip -q input.ipa -d payload_dir
+          dpkg-deb -R tweak.deb deb_dir
+          
+          # Tìm thư mục .app bên trong Payload
+          APP_DIR=$(ls payload_dir/Payload)
+          
+          echo "Đang chèn tweak vào ứng dụng..."
+          mkdir -p "payload_dir/Payload/$APP_DIR/Frameworks"
+          
+          # Copy các file framework/dylib từ tweak vào app
+          if [ -d "deb_dir/Library/MobileSubstrate/DynamicLibraries" ]; then
+            cp -r deb_dir/Library/MobileSubstrate/DynamicLibraries/* "payload_dir/Payload/$APP_DIR/"
+          elif [ -d "deb_dir/usr/lib" ]; then
+            cp -r deb_dir/usr/lib/* "payload_dir/Payload/$APP_DIR/"
+          fi
+          
+          echo "Đóng gói lại thành file IPA hoàn chỉnh..."
+          cd payload_dir
+          zip -9qr ../Output_App.ipa .
+          cd ..
 
       - name: Upload Patched IPA
         uses: actions/upload-artifact@v4
