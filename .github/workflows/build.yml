@@ -11,6 +11,14 @@ on:
         description: 'URL to the Tweak (.deb) file'
         required: true
         type: string
+      bundle_id:
+        description: 'Bundle ID mới (Để trống nếu giữ nguyên)'
+        required: false
+        type: string
+      app_name:
+        description: 'Tên App mới (Để trống nếu giữ nguyên)'
+        required: false
+        type: string
 
 jobs:
   build:
@@ -27,27 +35,40 @@ jobs:
           echo "Đang tải file Tweak (.deb)..."
           curl -L -o tweak.deb "${{ github.event.inputs.deb_url }}"
 
-      - name: Inject Tweak
+      - name: Inject Tweak and Customize
         run: |
           echo "Giải nén IPA..."
           unzip -q input.ipa -d payload_dir
           
           echo "Giải nén file Tweak .deb..."
           mkdir -p deb_extracted
-          # Dùng lệnh tar/ar tích hợp sẵn hoặc giải nén trực tiếp bằng tar
-          tar -xf tweak.deb -C deb_extracted || tar -xf tweak.deb || ar x tweak.deb
+          tar -xf tweak.deb -C deb_extracted || ar x tweak.deb
           
-          # Tìm file data.tar bên trong deb nếu có
           if [ -f "data.tar.lzma" ]; then tar -xf data.tar.lzma -C deb_extracted; fi
           if [ -f "data.tar.gz" ]; then tar -xf data.tar.gz -C deb_extracted; fi
           if [ -f "data.tar.xz" ]; then tar -xf data.tar.xz -C deb_extracted; fi
           
           APP_DIR=$(ls payload_dir/Payload)
-          mkdir -p "payload_dir/Payload/$APP_DIR"
+          APP_PATH="payload_dir/Payload/$APP_DIR"
           
           echo "Chèn file dylib/tweak vào ứng dụng..."
-          find deb_extracted -name "*.dylib" -exec cp {} "payload_dir/Payload/$APP_DIR/" \;
-          find deb_extracted -name "*.bundle" -exec cp -r {} "payload_dir/Payload/$APP_DIR/" \;
+          find deb_extracted -name "*.dylib" -exec cp {} "$APP_PATH/" \;
+          find deb_extracted -name "*.bundle" -exec cp -r {} "$APP_PATH/" \;
+          
+          # Đổi Bundle ID nếu người dùng nhập
+          NEW_BUNDLE_ID="${{ github.event.inputs.bundle_id }}"
+          if [ -n "$NEW_BUNDLE_ID" ]; then
+            echo "Đang đổi Bundle ID thành: $NEW_BUNDLE_ID"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $NEW_BUNDLE_ID" "$APP_PATH/Info.plist"
+          fi
+          
+          # Đổi Tên App nếu người dùng nhập
+          NEW_APP_NAME="${{ github.event.inputs.app_name }}"
+          if [ -n "$NEW_APP_NAME" ]; then
+            echo "Đang đổi Tên App thành: $NEW_APP_NAME"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $NEW_APP_NAME" "$APP_PATH/Info.plist" || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleName $NEW_APP_NAME" "$APP_PATH/Info.plist" || true
+          fi
           
           echo "Đóng gói lại file IPA..."
           cd payload_dir
@@ -57,5 +78,5 @@ jobs:
       - name: Upload Patched IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Final-Patched-IPA
+          name: App-Da-Inject
           path: Output_App.ipa
