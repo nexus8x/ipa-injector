@@ -45,7 +45,6 @@ jobs:
           COUNTER=1
           CMD_ARGS="-i input.ipa -o Output_App.ipa"
           
-          # Đọc chuỗi URL an toàn, chống lỗi ký tự đặc biệt & hoặc khoảng trắng
           echo "${{ inputs.deb_urls }}" | xargs -n1 | while read -r url; do
             [ -z "$url" ] && continue
             echo "Đang tải tweak thứ $COUNTER từ: $url"
@@ -53,7 +52,6 @@ jobs:
             COUNTER=$((COUNTER + 1))
           done
           
-          # Gom các file deb đã tải vào lệnh cyan
           for f in tweak_*.deb; do
             if [ -f "$f" ]; then
               CMD_ARGS="$CMD_ARGS -f $f"
@@ -65,7 +63,7 @@ jobs:
       - name: Install cyan tool
         run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
-      - name: Inject Tweaks and Customize App
+      - name: Inject Tweaks and Customize App & Extract Info
         run: |
           FINAL_CMD="$CYAN_CMD"
           
@@ -80,10 +78,49 @@ jobs:
           echo "Thực thi: $FINAL_CMD"
           eval $FINAL_CMD
 
+          echo "Đang trích xuất thông tin thực tế từ IPA..."
+          mkdir -p extracted_app
+          unzip -q Output_App.ipa -d extracted_app
+          PLIST_PATH=$(find extracted_app/Payload -name "Info.plist" | head -n 1)
+          
+          if [ -f "$PLIST_PATH" ]; then
+            python3 -c "
+import plistlib
+import os
+
+plist_file = '$PLIST_PATH'
+with open(plist_file, 'rb') as f:
+    pl = plistlib.load(f)
+
+app_name = pl.get('CFBundleDisplayName') or pl.get('CFBundleName') or 'Unknown'
+bundle_id = pl.get('CFBundleIdentifier') or 'Unknown'
+version = pl.get('CFBundleShortVersionString') or '1.0'
+
+# Loại bỏ ký tự đặc biệt trong tên app để làm tên file an toàn
+safe_app_name = ''.join(c for c in app_name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+
+with open(os.environ['GITHUB_ENV'], 'a') as env_file:
+    env_file.write(f'EXTRACTED_NAME={app_name}\n')
+    env_file.write(f'EXTRACTED_BUNDLE={bundle_id}\n')
+    env_file.write(f'EXTRACTED_VERSION={version}\n')
+    env_file.write(f'SAFE_APP_NAME={safe_app_name}\n')
+"
+          else
+            echo "EXTRACTED_NAME=Custom App" >> $GITHUB_ENV
+            echo "EXTRACTED_BUNDLE=Unknown" >> $GITHUB_ENV
+            echo "EXTRACTED_VERSION=1.0" >> $GITHUB_ENV
+            echo "SAFE_APP_NAME=Custom_App" >> $GITHUB_ENV
+          fi
+
+          # Đổi tên file IPA theo đúng chuẩn tiêu đề Release
+          FINAL_IPA_NAME="${{ env.SAFE_APP_NAME }}_v${{ env.EXTRACTED_VERSION }}.ipa"
+          mv Output_App.ipa "$FINAL_IPA_NAME"
+          echo "FINAL_IPA_FILE=$FINAL_IPA_NAME" >> $GITHUB_ENV
+
       - name: Generate Auto Tag & Release
         id: auto_tag
         run: |
-          AUTO_TAG="v$(date +'%Y.%m.%d-%H%M')"
+          AUTO_TAG="v${{ env.EXTRACTED_VERSION }}-${{ github.run_number }}"
           echo "tag=$AUTO_TAG" >> $GITHUB_OUTPUT
           
           git config user.name "github-actions[bot]"
@@ -95,21 +132,15 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            Output_App.ipa
+            ${{ env.FINAL_IPA_FILE }}
           tag_name: ${{ steps.auto_tag.outputs.tag }}
-          name: "${{ inputs.display_name != '' && inputs.display_name || 'Custom App' }} ${{ steps.auto_tag.outputs.tag }}"
+          name: "${{ env.EXTRACTED_NAME }} ${{ env.EXTRACTED_VERSION }}"
           body: |
             ## App Release Info
             
-            * **App Name:** `${{ inputs.display_name != '' && inputs.display_name || 'Giữ nguyên' }}`
-            * **Bundle ID:** `${{ inputs.bundle_id != '' && inputs.bundle_id || 'Giữ nguyên' }}`
-            * **Version:** `${{ steps.auto_tag.outputs.tag }}`
+            * **App Name:** `${{ env.EXTRACTED_NAME }}`
+            * **Bundle ID:** `${{ env.EXTRACTED_BUNDLE }}`
+            * **Version:** `${{ env.EXTRACTED_VERSION }}`
             * **Platform:** `iOS`
-            
-            ---
-            
-            ## Must read:
-            * File IPA được build tự động và gán mác thời gian.
-            * Hãy ký (sign) file `Output_App.ipa` trước khi cài đặt.
           draft: false
           prerelease: false
