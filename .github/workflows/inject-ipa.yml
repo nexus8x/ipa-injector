@@ -38,28 +38,36 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download IPA and Tweaks
+        shell: bash
+        env:
+          IPA_URL: ${{ inputs.ipa_url }}
+          DEB_URLS: ${{ inputs.deb_urls }}
         run: |
           echo "Đang tải IPA..."
-          wget "${{ inputs.ipa_url }}" --no-verbose -O youtube.ipa
+          wget "$IPA_URL" --no-verbose -O youtube.ipa
 
           echo "Đang tải các tweak..."
           i=1
           while IFS= read -r url; do
-            [ -z "$url" ] && continue
-            echo "Tải tweak $i..."
-            wget "$url" --no-verbose -O "tweak_$i.deb"
-            i=$((i+1))
-          done <<EOF
-${{ inputs.deb_urls }}
-EOF
+            if [ -n "$url" ]; then
+              echo "Tải tweak $i: $url"
+              wget "$url" --no-verbose -O "tweak_$i.deb"
+              i=$((i+1))
+            fi
+          done <<< "$DEB_URLS"
 
           echo "Danh sách tweak:"
           ls -lh *.deb
 
       - name: Install cyan tool
-        run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+        run: |
+          pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
       - name: Inject Tweaks into IPA
+        shell: bash
+        env:
+          DISPLAY_NAME: ${{ inputs.display_name }}
+          BUNDLE_ID: ${{ inputs.bundle_id }}
         run: |
           args=(-i youtube.ipa -o Output_App.ipa -uwef)
 
@@ -67,18 +75,18 @@ EOF
             [ -f "$f" ] && args+=("$f")
           done
 
-          if [ -n "${{ inputs.display_name }}" ]; then
-            args+=(-n "${{ inputs.display_name }}")
+          if [ -n "$DISPLAY_NAME" ]; then
+            args+=(-n "$DISPLAY_NAME")
           fi
 
-          if [ -n "${{ inputs.bundle_id }}" ]; then
-            args+=(-b "${{ inputs.bundle_id }}")
+          if [ -n "$BUNDLE_ID" ]; then
+            args+=(-b "$BUNDLE_ID")
           fi
 
-          echo "====================================="
-          echo "Các tweak sẽ được inject:"
+          echo "===================================="
+          echo "Tweaks sẽ inject:"
           printf ' - %s\n' *.deb
-          echo "====================================="
+          echo "===================================="
 
           cyan "${args[@]}"
 
