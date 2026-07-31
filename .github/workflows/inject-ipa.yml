@@ -53,16 +53,21 @@ jobs:
 
       - name: Inject tweaks into IPA (Standard Cyan Packing)
         run: |
-          # Thu gom tất cả file deb có trong thư mục
+          echo "Danh sách các file deb hiện có:"
+          ls -la *.deb
+          
+          # Gom tất cả các file deb kèm theo cú pháp -f cho mỗi file
           tweaks=""
           for f in *.deb; do
-            [ -f "$f" ] && tweaks="$tweaks $f"
+            if [ -f "$f" ]; then
+              tweaks="$tweaks -f $f"
+            fi
           done
           
-          echo "Danh sách tweak được tìm thấy: $tweaks"
+          echo "Tham số tweak truyền vào: $tweaks"
           
-          # Xây dựng lệnh cyan linh hoạt
-          CMD="cyan -i youtube.ipa -o Output_App.ipa -uwef $tweaks"
+          # Xây dựng lệnh cyan chuẩn xác
+          CMD="cyan -i youtube.ipa -o Output_App.ipa -uwe $tweaks"
           
           if [ -n "${{ inputs.display_name }}" ]; then
             CMD="$CMD -n '${{ inputs.display_name }}'"
