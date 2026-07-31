@@ -50,77 +50,163 @@ on:
         default: ''
         type: string
 
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 
 jobs:
   build:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
 
-      - name: Download IPA and Tweaks
-        shell: bash
-        env:
-          IPA_URL: ${{ inputs.ipa_url }}
-          DEB1: ${{ inputs.deb_url_1 }}
-          DEB2: ${{ inputs.deb_url_2 }}
-          DEB3: ${{ inputs.deb_url_3 }}
-          DEB4: ${{ inputs.deb_url_4 }}
-          DEB5: ${{ inputs.deb_url_5 }}
-        run: |
-          set -e
+    - uses: actions/checkout@v4
 
-          wget "$IPA_URL" -O youtube.ipa
 
-          i=1
+    - name: Download IPA and Tweaks
+      shell: bash
+      env:
+        IPA_URL: ${{ inputs.ipa_url }}
+        DEB1: ${{ inputs.deb_url_1 }}
+        DEB2: ${{ inputs.deb_url_2 }}
+        DEB3: ${{ inputs.deb_url_3 }}
+        DEB4: ${{ inputs.deb_url_4 }}
+        DEB5: ${{ inputs.deb_url_5 }}
 
-          for url in "$DEB1" "$DEB2" "$DEB3" "$DEB4" "$DEB5"; do
-            if [ -n "$url" ]; then
-              echo "Downloading tweak $i..."
-              wget "$url" -O "tweak_$i.deb"
-              i=$((i+1))
-            fi
-          done
+      run: |
 
-          echo "Downloaded tweaks:"
-          ls -lh *.deb
+        set -e
 
-      - name: Install cyan tool
-        run: |
-          pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+        wget "$IPA_URL" -O youtube.ipa
 
-      - name: Inject Tweaks into IPA
-        shell: bash
-        env:
-          DISPLAY_NAME: ${{ inputs.display_name }}
-          BUNDLE_ID: ${{ inputs.bundle_id }}
-        run: |
-          args=(-i youtube.ipa -o Output_App.ipa -uwef)
 
-          for f in tweak_*.deb; do
-            [ -f "$f" ] && args+=("$f")
-          done
+        count=1
 
-          if [ -n "$DISPLAY_NAME" ]; then
-            args+=(-n "$DISPLAY_NAME")
+        for url in "$DEB1" "$DEB2" "$DEB3" "$DEB4" "$DEB5"
+        do
+          if [ -n "$url" ]; then
+            wget "$url" -O "tweak_$count.deb"
+            count=$((count+1))
+          fi
+        done
+
+
+        ls -lh *.deb || true
+
+
+
+    - name: Install tools
+      run: |
+
+        pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+
+        brew install dpkg
+
+
+
+    - name: Extract dependency libraries
+      run: |
+
+        mkdir -p extra_libs
+
+
+        for deb in tweak_*.deb
+        do
+
+          if [ -f "$deb" ]; then
+
+            mkdir temp
+
+            dpkg-deb -x "$deb" temp
+
+
+            find temp -name "*.dylib" -exec cp {} extra_libs/ \;
+
+
+            rm -rf temp
+
           fi
 
-          if [ -n "$BUNDLE_ID" ]; then
-            args+=(-b "$BUNDLE_ID")
+        done
+
+
+        echo "Libraries found:"
+        ls -lh extra_libs || true
+
+
+
+    - name: Inject Tweaks
+      shell: bash
+      env:
+        DISPLAY_NAME: ${{ inputs.display_name }}
+        BUNDLE_ID: ${{ inputs.bundle_id }}
+
+      run: |
+
+        args=(-i youtube.ipa -o Output_App.ipa -uwef)
+
+
+        for f in tweak_*.deb
+        do
+          [ -f "$f" ] && args+=("$f")
+        done
+
+
+        if [ -n "$DISPLAY_NAME" ]; then
+          args+=(-n "$DISPLAY_NAME")
+        fi
+
+
+        if [ -n "$BUNDLE_ID" ]; then
+          args+=(-b "$BUNDLE_ID")
+        fi
+
+
+        cyan "${args[@]}"
+
+
+
+    - name: Patch dylib dependencies
+      run: |
+
+        mkdir payload
+
+        unzip -q Output_App.ipa -d payload
+
+
+        APP=$(find payload -name "*.app" | head -1)
+
+
+        mkdir -p "$APP/Frameworks"
+
+
+        cp extra_libs/*.dylib "$APP/Frameworks/" 2>/dev/null || true
+
+
+        for dylib in "$APP"/Frameworks/*.dylib
+        do
+
+          if [ -f "$dylib" ]; then
+
+            install_name_tool \
+            -add_rpath "@loader_path/Frameworks" \
+            "$dylib" 2>/dev/null || true
+
           fi
 
-          echo "===================================="
-          echo "Tweaks sẽ inject:"
-          printf ' - %s\n' tweak_*.deb
-          echo "===================================="
+        done
 
-          cyan "${args[@]}"
 
-      - name: Upload Patched IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: App-Da-Inject
-          path: Output_App.ipa
+        cd payload
+
+        zip -qr ../Fixed_App.ipa .
+
+
+
+    - name: Upload IPA
+      uses: actions/upload-artifact@v4
+      with:
+        name: App-Fixed
+        path: Fixed_App.ipa
