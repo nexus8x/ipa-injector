@@ -33,7 +33,7 @@ jobs:
   build:
     runs-on: macos-latest
     permissions:
-      contents: write # Cực kỳ quan trọng để GitHub Actions có quyền tạo Release và Tag
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -50,9 +50,9 @@ jobs:
           wget --tries=3 --timeout=30 "${{ inputs.ipa_url }}" -O app.ipa
           test -s app.ipa
 
-          tweak_count=0
-
-          echo "$DEB_URLS" | while IFS= read -r url; do
+          echo "Downloading Tweaks..."
+          while IFS= read -r url || [ -n "$url" ]; do
+            url=$(echo "$url" | tr -d '\r' | xargs)
             [ -z "$url" ] && continue
 
             FILE=$(basename "${url%%\?*}")
@@ -61,15 +61,12 @@ jobs:
               FILE="${FILE}.deb"
             fi
 
-            echo "Downloading $FILE"
-
+            echo "Downloading $FILE from $url"
             wget --tries=3 --timeout=30 "$url" -O "$FILE"
-
             test -s "$FILE"
+          done <<< "$DEB_URLS"
 
-            tweak_count=$((tweak_count+1))
-          done
-
+          echo "Danh sách các file .deb đã tải về:"
           ls -lh *.deb
 
       - name: Install cyan tool
@@ -82,7 +79,6 @@ jobs:
           APP_NAME="${{ inputs.display_name }}"
 
           if [ -z "$APP_NAME" ]; then
-            # Thử giải nén và tìm tên trong Info.plist
             unzip -qq app.ipa -d ipa
             INFO=$(find ipa/Payload -name Info.plist | head -n1)
             
@@ -96,7 +92,6 @@ jobs:
             rm -rf ipa
           fi
 
-          # Nếu vẫn không tìm thấy, lấy luôn tên từ file IPA gốc (bỏ đuôi .ipa)
           if [ -z "$APP_NAME" ]; then
             ORIGINAL_IPA_BASENAME=$(basename "${{ inputs.ipa_url }}" \?*)
             APP_NAME="${ORIGINAL_IPA_BASENAME%.ipa}"
