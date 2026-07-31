@@ -1,4 +1,4 @@
-name: Custom IPA Direct Injector
+name: Auto Inject IPA and Tweak Pro
 
 on:
   workflow_dispatch:
@@ -7,8 +7,8 @@ on:
         description: 'URL direct tới file IPA gốc (Decrypted)'
         required: true
         type: string
-      deb_urls:
-        description: 'Danh sách URL các file Tweak (.deb), mỗi link một dòng'
+      deb_url:
+        description: 'URL direct tới file Tweak (.deb)'
         required: true
         type: string
       display_name:
@@ -33,35 +33,29 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download IPA and Tweaks via Direct Links
-        env:
-          DEB_URLS_INPUT: ${{ inputs.deb_urls }}
-          IPA_URL_INPUT: ${{ inputs.ipa_url }}
+      - name: Download IPA and Tweak
         run: |
-          echo "Đang tải file IPA gốc..."
-          curl -L "$IPA_URL_INPUT" -o youtube.ipa
+          echo "Đang tải file IPA..."
+          wget "${{ inputs.ipa_url }}" --no-verbose -O youtube.ipa
           
-          echo "Đang chạy script tải tweak..."
-          python3 .github/workflows/download.py
-          
-          echo "Kiểm tra toàn bộ file sau khi tải:"
-          ls -la
+          echo "Đang tải file Tweak (.deb)..."
+          wget "${{ inputs.deb_url }}" --no-verbose -O custom_tweak.deb
 
-      - name: Install Cyan Tool (Pyzule-rw Engine)
+      - name: Install cyan tool
         run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
-      - name: Inject Tweaks & Optimize for SideStore / LiveContainer
+      - name: Inject tweaks into IPA (Standard Cyan Packing)
         run: |
+          # Thu gom tất cả file deb có trong thư mục theo đúng cách các repo mẫu làm
           tweaks=""
-          for f in tweak_*.deb; do
-            if [ -f "$f" ]; then
-              tweaks="$tweaks -f $f"
-            fi
+          for f in *.deb; do
+            [ -f "$f" ] && tweaks="$tweaks $f"
           done
           
-          echo "Danh sách tham số tweak truyền vào: $tweaks"
+          echo "Danh sách tweak được tìm thấy: $tweaks"
           
-          CMD="cyan -i youtube.ipa -o Output_Final.ipa -uwe $tweaks"
+          # Xây dựng lệnh cyan linh hoạt
+          CMD="cyan -i youtube.ipa -o Output_App.ipa -uwef $tweaks"
           
           if [ -n "${{ inputs.display_name }}" ]; then
             CMD="$CMD -n '${{ inputs.display_name }}'"
@@ -71,11 +65,11 @@ jobs:
             CMD="$CMD -b ${{ inputs.bundle_id }}"
           fi
           
-          echo "Thực thi lệnh: $CMD"
+          echo "Thực thi: $CMD"
           eval $CMD
 
-      - name: Upload Final Patched IPA Artifact
+      - name: Upload Patched IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Patched-IPA-Ready-For-SideStore
-          path: Output_Final.ipa
+          name: App-Da-Inject
+          path: Output_App.ipa
