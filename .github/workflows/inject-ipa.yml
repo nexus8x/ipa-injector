@@ -41,35 +41,8 @@ jobs:
           echo "Đang tải file IPA gốc..."
           curl -L "$IPA_URL_INPUT" -o youtube.ipa
           
-          echo "Đang tạo script tải tweak qua biến môi trường an toàn..."
-          cat << 'EOF' > download_tweaks.py
-import urllib.request
-import os
-import sys
-
-raw_urls = os.environ.get("DEB_URLS_INPUT", "")
-urls = raw_urls.strip().splitlines()
-
-index = 1
-for url in urls:
-    url = url.strip()
-    if not url:
-        continue
-    filename = f"tweak_{index}.deb"
-    print(f"Đang tải tweak {index} từ: {url}")
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as response, open(filename, "wb") as out_file:
-            out_file.write(response.read())
-        print(f"Đã lưu thành công: {filename}")
-        index += 1
-    except Exception as e:
-        print(f"Lỗi khi tải {url}: {e}")
-EOF
-
-          echo "Đang thực thi script tải tweak..."
-          python3 download_tweaks.py
+          echo "Đang chạy script tải tweak..."
+          python3 .github/workflows/download.py
           
           echo "Kiểm tra toàn bộ file sau khi tải:"
           ls -la
