@@ -8,13 +8,13 @@ on:
         required: true
         type: string
 
-      deb_urls:
-        description: 'Một hoặc nhiều URL tweak (.deb), mỗi link một dòng'
+      deb_url:
+        description: 'URL direct tới file Tweak (.deb)'
         required: true
         type: string
 
       display_name:
-        description: 'Tên App mới (Để trống nếu giữ nguyên)'
+        description: 'Tên App mới (Để trống sẽ tự lấy từ IPA)'
         default: ''
         required: false
         type: string
@@ -37,84 +37,60 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download IPA
+      - name: Download IPA and Tweak
         run: |
           set -e
 
-          echo "📥 Đang tải IPA..."
-          wget --tries=3 --timeout=30 "${{ inputs.ipa_url }}" -O youtube.ipa
+          echo "Downloading IPA..."
+          wget --tries=3 --timeout=30 "${{ inputs.ipa_url }}" -O app.ipa
+          test -s app.ipa
 
-          if [ ! -s youtube.ipa ]; then
-            echo "❌ Không tải được IPA!"
-            exit 1
-          fi
+          echo "Downloading Tweak..."
+          FILE=$(basename "${{ inputs.deb_url }}")
+          wget --tries=3 --timeout=30 "${{ inputs.deb_url }}" -O "$FILE"
+          test -s "$FILE"
 
-          echo "✅ IPA tải thành công:"
-          ls -lh youtube.ipa
+          echo "TWEAK_FILE=$FILE" >> $GITHUB_ENV
 
-      - name: Download Tweaks
-        run: |
-          set -e
-
-          echo "📥 Đang tải tweak..."
-
-          count=1
-
-          while IFS= read -r url || [ -n "$url" ]; do
-            [ -z "$url" ] && continue
-
-            echo "→ $url"
-
-            wget --tries=3 --timeout=30 "$url" -O "tweak$count.deb"
-
-            if [ ! -s "tweak$count.deb" ]; then
-              echo "❌ Không tải được tweak số $count"
-              exit 1
-            fi
-
-            count=$((count+1))
-
-          done << 'EOF'
-${{ inputs.deb_urls }}
-EOF
-
-          echo ""
-          echo "✅ Danh sách tweak:"
-          ls -lh *.deb
-
-      - name: Install Cyan
+      - name: Install cyan tool
         run: |
           pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
-      - name: Show Environment
+      - name: Prepare Output Name
         run: |
-          echo "===== Cyan Version ====="
-          cyan --version || true
+          APP_NAME="${{ inputs.display_name }}"
 
-          echo ""
-          echo "===== Files ====="
-          ls -lah
+          if [ -z "$APP_NAME" ]; then
 
-      - name: Inject Tweaks
-        run: |
-          set -e
+            unzip -qq app.ipa -d ipa
 
-          tweaks=""
+            INFO=$(find ipa/Payload -name Info.plist | head -n1)
 
-          for f in *.deb; do
-            [ -f "$f" ] && tweaks="$tweaks $f"
-          done
+            APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$INFO" 2>/dev/null || true)
 
-          echo "Tweaks:$tweaks"
+            if [ -z "$APP_NAME" ]; then
+              APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$INFO" 2>/dev/null || true)
+            fi
 
-          OUTPUT="Output_App.ipa"
+            rm -rf ipa
 
-          if [ -n "${{ inputs.display_name }}" ]; then
-            SAFE_NAME=$(echo "${{ inputs.display_name }}" | tr '/\:*?"<>|' '_')
-            OUTPUT="${SAFE_NAME}.ipa"
           fi
 
-          CMD="cyan -i youtube.ipa -o \"$OUTPUT\" -uwef $tweaks"
+          [ -z "$APP_NAME" ] && APP_NAME="Patched App"
+
+          TWEAK_NAME=$(basename "${{ env.TWEAK_FILE }}" .deb)
+
+          SAFE_APP=$(echo "$APP_NAME" | tr '/\:*?"<>|' '_')
+          SAFE_TWEAK=$(echo "$TWEAK_NAME" | tr '/\:*?"<>|' '_')
+
+          OUTPUT="${SAFE_APP} (${SAFE_TWEAK}).ipa"
+
+          echo "OUTPUT_FILE=$OUTPUT" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=${SAFE_APP} (${SAFE_TWEAK})" >> $GITHUB_ENV
+
+      - name: Inject tweak
+        run: |
+          CMD="cyan -i app.ipa -o \"${{ env.OUTPUT_FILE }}\" -uwef \"${{ env.TWEAK_FILE }}\""
 
           if [ -n "${{ inputs.display_name }}" ]; then
             CMD="$CMD -n \"${{ inputs.display_name }}\""
@@ -124,18 +100,12 @@ EOF
             CMD="$CMD -b \"${{ inputs.bundle_id }}\""
           fi
 
-          echo ""
-          echo "===== Running ====="
           echo "$CMD"
 
           eval "$CMD"
 
-          echo ""
-          echo "✅ Hoàn thành!"
-          ls -lh "$OUTPUT"
-
-      - name: Upload Patched IPA
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Patched-IPA
-          path: "*.ipa"
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.OUTPUT_FILE }}
