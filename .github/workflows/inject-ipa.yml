@@ -32,6 +32,8 @@ concurrency:
 jobs:
   build:
     runs-on: macos-latest
+    permissions:
+      contents: write # Cực kỳ quan trọng để GitHub Actions có quyền tạo Release và Tag
 
     steps:
       - name: Checkout Repository
@@ -148,8 +150,20 @@ jobs:
 
           eval "$CMD"
 
-      - name: Upload IPA
+      - name: Upload IPA (Artifact)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: ${{ env.OUTPUT_FILE }}
+
+      - name: Create Release and Upload IPA
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.OUTPUT_FILE }}
+          tag_name: v${{ github.run_number }}
+          name: Release ${{ env.ARTIFACT_NAME }} (v${{ github.run_number }})
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
