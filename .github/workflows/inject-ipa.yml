@@ -1,10 +1,10 @@
-name: Auto Inject IPA and Tweak Pro
+name: Auto Inject IPA and Tweak Pro AutoFix
 
 on:
   workflow_dispatch:
     inputs:
       ipa_url:
-        description: 'URL direct tới file IPA'
+        description: 'URL direct IPA'
         required: true
         type: string
 
@@ -39,36 +39,37 @@ on:
         type: string
 
       display_name:
-        description: 'Tên App mới'
+        description: 'Tên App'
         required: false
         default: ''
         type: string
 
       bundle_id:
-        description: 'Bundle ID mới'
+        description: 'Bundle ID'
         required: false
         default: ''
         type: string
 
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-
 jobs:
+
   build:
+
     runs-on: macos-latest
+
 
     steps:
 
     - uses: actions/checkout@v4
 
 
-    - name: Download IPA and Tweaks
+
+    - name: Download IPA and DEB
       shell: bash
       env:
+
         IPA_URL: ${{ inputs.ipa_url }}
+
         DEB1: ${{ inputs.deb_url_1 }}
         DEB2: ${{ inputs.deb_url_2 }}
         DEB3: ${{ inputs.deb_url_3 }}
@@ -79,25 +80,29 @@ jobs:
 
         set -e
 
-        wget "$IPA_URL" -O youtube.ipa
+
+        wget "$IPA_URL" -O app.ipa
 
 
-        count=1
+        i=1
 
         for url in "$DEB1" "$DEB2" "$DEB3" "$DEB4" "$DEB5"
         do
+
           if [ -n "$url" ]; then
-            wget "$url" -O "tweak_$count.deb"
-            count=$((count+1))
+
+            wget "$url" -O "tweak_$i.deb"
+
+            i=$((i+1))
+
           fi
+
         done
-
-
-        ls -lh *.deb || true
 
 
 
     - name: Install tools
+
       run: |
 
         pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
@@ -106,107 +111,134 @@ jobs:
 
 
 
-    - name: Extract dependency libraries
+    - name: Extract all dylib from tweaks
+
       run: |
 
-        mkdir -p extra_libs
+        mkdir -p extracted
 
 
         for deb in tweak_*.deb
         do
 
-          if [ -f "$deb" ]; then
-
-            mkdir temp
-
-            dpkg-deb -x "$deb" temp
+          [ -f "$deb" ] || continue
 
 
-            find temp -name "*.dylib" -exec cp {} extra_libs/ \;
+          mkdir temp
 
 
-            rm -rf temp
+          dpkg-deb -x "$deb" temp
 
-          fi
+
+          find temp -name "*.dylib" -exec cp {} extracted/ \;
+
+
+          rm -rf temp
+
 
         done
 
 
-        echo "Libraries found:"
-        ls -lh extra_libs || true
+        echo "Dylib found:"
+        ls -la extracted || true
 
 
 
-    - name: Inject Tweaks
-      shell: bash
+    - name: Inject tweaks
+
       env:
-        DISPLAY_NAME: ${{ inputs.display_name }}
-        BUNDLE_ID: ${{ inputs.bundle_id }}
+
+        NAME: ${{ inputs.display_name }}
+
+        BID: ${{ inputs.bundle_id }}
 
       run: |
 
-        args=(-i youtube.ipa -o Output_App.ipa -uwef)
+        args=(-i app.ipa -o injected.ipa -uwef)
 
 
-        for f in tweak_*.deb
+        for deb in tweak_*.deb
+
         do
-          [ -f "$f" ] && args+=("$f")
+
+          [ -f "$deb" ] && args+=("$deb")
+
         done
 
 
-        if [ -n "$DISPLAY_NAME" ]; then
-          args+=(-n "$DISPLAY_NAME")
+
+        if [ -n "$NAME" ]; then
+
+          args+=(-n "$NAME")
+
         fi
 
 
-        if [ -n "$BUNDLE_ID" ]; then
-          args+=(-b "$BUNDLE_ID")
+        if [ -n "$BID" ]; then
+
+          args+=(-b "$BID")
+
         fi
+
 
 
         cyan "${args[@]}"
 
 
 
-    - name: Patch dylib dependencies
+    - name: Add dependency dylib
+
       run: |
 
-        mkdir payload
-
-        unzip -q Output_App.ipa -d payload
+        set -e
 
 
-        APP=$(find payload -name "*.app" | head -1)
+        mkdir work
+
+
+        unzip -q injected.ipa -d work
+
+
+        APP=$(find work -name "*.app" | head -1)
+
 
 
         mkdir -p "$APP/Frameworks"
 
 
-        cp extra_libs/*.dylib "$APP/Frameworks/" 2>/dev/null || true
+
+        cp extracted/*.dylib "$APP/Frameworks/" 2>/dev/null || true
 
 
-        for dylib in "$APP"/Frameworks/*.dylib
+
+        for dylib in "$APP/Frameworks/"*.dylib
+
         do
 
           if [ -f "$dylib" ]; then
 
             install_name_tool \
             -add_rpath "@loader_path/Frameworks" \
-            "$dylib" 2>/dev/null || true
+            "$dylib" || true
 
           fi
 
         done
 
 
-        cd payload
 
-        zip -qr ../Fixed_App.ipa .
+        cd work
+
+        zip -qr ../fixed.ipa .
 
 
 
     - name: Upload IPA
+
       uses: actions/upload-artifact@v4
+
       with:
-        name: App-Fixed
-        path: Fixed_App.ipa
+
+        name: IPA-Fixed
+
+        path: fixed.ipa
