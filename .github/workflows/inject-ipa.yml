@@ -8,8 +8,8 @@ on:
         required: true
         type: string
 
-      deb_url:
-        description: 'URL direct tới file Tweak (.deb)'
+      deb_urls:
+        description: 'Một hoặc nhiều URL tweak (.deb), mỗi link một dòng'
         required: true
         type: string
 
@@ -37,7 +37,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download IPA and Tweak
+      - name: Download IPA and Tweaks
+        shell: bash
+        env:
+          DEB_URLS: ${{ inputs.deb_urls }}
         run: |
           set -e
 
@@ -45,18 +48,34 @@ jobs:
           wget --tries=3 --timeout=30 "${{ inputs.ipa_url }}" -O app.ipa
           test -s app.ipa
 
-          echo "Downloading Tweak..."
-          FILE=$(basename "${{ inputs.deb_url }}")
-          wget --tries=3 --timeout=30 "${{ inputs.deb_url }}" -O "$FILE"
-          test -s "$FILE"
+          tweak_count=0
 
-          echo "TWEAK_FILE=$FILE" >> $GITHUB_ENV
+          echo "$DEB_URLS" | while IFS= read -r url; do
+            [ -z "$url" ] && continue
+
+            FILE=$(basename "${url%%\?*}")
+
+            if [[ "$FILE" != *.deb ]]; then
+              FILE="${FILE}.deb"
+            fi
+
+            echo "Downloading $FILE"
+
+            wget --tries=3 --timeout=30 "$url" -O "$FILE"
+
+            test -s "$FILE"
+
+            tweak_count=$((tweak_count+1))
+          done
+
+          ls -lh *.deb
 
       - name: Install cyan tool
         run: |
           pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
       - name: Prepare Output Name
+        shell: bash
         run: |
           APP_NAME="${{ inputs.display_name }}"
 
@@ -78,7 +97,24 @@ jobs:
 
           [ -z "$APP_NAME" ] && APP_NAME="Patched App"
 
-          TWEAK_NAME=$(basename "${{ env.TWEAK_FILE }}" .deb)
+          first=""
+          count=0
+
+          for f in *.deb; do
+            [ -f "$f" ] || continue
+
+            count=$((count+1))
+
+            if [ -z "$first" ]; then
+              first=$(basename "$f" .deb)
+            fi
+          done
+
+          if [ "$count" -gt 1 ]; then
+            TWEAK_NAME="${first} +$((count-1))"
+          else
+            TWEAK_NAME="$first"
+          fi
 
           SAFE_APP=$(echo "$APP_NAME" | tr '/\:*?"<>|' '_')
           SAFE_TWEAK=$(echo "$TWEAK_NAME" | tr '/\:*?"<>|' '_')
@@ -88,9 +124,17 @@ jobs:
           echo "OUTPUT_FILE=$OUTPUT" >> $GITHUB_ENV
           echo "ARTIFACT_NAME=${SAFE_APP} (${SAFE_TWEAK})" >> $GITHUB_ENV
 
-      - name: Inject tweak
+      - name: Inject tweaks
+        shell: bash
         run: |
-          CMD="cyan -i app.ipa -o \"${{ env.OUTPUT_FILE }}\" -uwef \"${{ env.TWEAK_FILE }}\""
+          tweaks=""
+
+          for f in *.deb; do
+            [ -f "$f" ] || continue
+            tweaks="$tweaks \"$f\""
+          done
+
+          CMD="cyan -i app.ipa -o \"${{ env.OUTPUT_FILE }}\" -uwef $tweaks"
 
           if [ -n "${{ inputs.display_name }}" ]; then
             CMD="$CMD -n \"${{ inputs.display_name }}\""
