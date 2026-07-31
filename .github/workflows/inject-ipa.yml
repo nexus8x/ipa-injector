@@ -38,12 +38,14 @@ jobs:
           echo "Đang tải file IPA gốc..."
           curl -L "${{ inputs.ipa_url }}" -o youtube.ipa
           
-          echo "Đang tải các file Tweak (.deb)..."
-          python3 -c '
+          echo "Đang tạo script tải tweak..."
+          cat << 'EOF' > download_tweaks.py
 import urllib.request
 import os
 
-urls = """${{ inputs.deb_urls }}""".strip().splitlines()
+raw_urls = """${{ inputs.deb_urls }}"""
+urls = raw_urls.strip().splitlines()
+
 index = 1
 for url in urls:
     url = url.strip()
@@ -60,7 +62,10 @@ for url in urls:
         index += 1
     except Exception as e:
         print(f"Lỗi khi tải {url}: {e}")
-          '
+EOF
+
+          echo "Đang thực thi script tải tweak..."
+          python3 download_tweaks.py
           
           echo "Kiểm tra toàn bộ file sau khi tải:"
           ls -la
