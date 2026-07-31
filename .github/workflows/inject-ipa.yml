@@ -7,18 +7,15 @@ on:
         description: 'URL direct tới file IPA gốc (Decrypted)'
         required: true
         type: string
-
-      deb_urls:
-        description: 'Một hoặc nhiều URL tweak (.deb), mỗi link một dòng'
+      deb_url:
+        description: 'URL direct tới file Tweak (.deb)'
         required: true
         type: string
-
       display_name:
-        description: 'Tên App mới (Để trống sẽ tự lấy từ IPA)'
+        description: 'Tên App mới (Để trống nếu giữ nguyên)'
         default: ''
         required: false
         type: string
-
       bundle_id:
         description: 'Bundle ID mới (Để trống nếu giữ nguyên)'
         default: ''
@@ -32,141 +29,47 @@ concurrency:
 jobs:
   build:
     runs-on: macos-latest
-    permissions:
-      contents: write
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download IPA and Tweaks
-        shell: bash
+      - name: Download IPA and Tweak
         run: |
-          set -e
-
-          echo "Downloading IPA..."
-          wget --tries=3 --timeout=30 "${{ inputs.ipa_url }}" -O app.ipa
-          test -s app.ipa
-
-          echo "Downloading Tweaks..."
-          # Xử lý tách chuỗi triệt để, chống lỗi dính dòng của GitHub Actions input
-          RAW_URLS="${{ inputs.deb_urls }}"
-          # Thay thế mọi kiểu xuống dòng thành khoảng trắng để ép duyệt từng link
-          for url in $(echo "$RAW_URLS" | tr '\r\n' ' ' | xargs); do
-            [ -z "$url" ] && continue
-
-            FILE=$(basename "${url%%\?*}")
-
-            if [[ "$FILE" != *.deb ]]; then
-              FILE="${FILE}.deb"
-            fi
-
-            echo "Downloading $FILE from $url"
-            wget --tries=3 --timeout=30 "$url" -O "$FILE"
-            test -s "$FILE"
-          done
-
-          echo "Danh sách tất cả các file .deb đã tải về:"
-          ls -lh *.deb
+          echo "Đang tải file IPA..."
+          wget "${{ inputs.ipa_url }}" --no-verbose -O youtube.ipa
+          
+          echo "Đang tải file Tweak (.deb)..."
+          wget "${{ inputs.deb_url }}" --no-verbose -O custom_tweak.deb
 
       - name: Install cyan tool
+        run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+
+      - name: Inject tweaks into IPA (Standard Cyan Packing)
         run: |
-          pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
-
-      - name: Prepare Output Name
-        shell: bash
-        run: |
-          APP_NAME="${{ inputs.display_name }}"
-
-          if [ -z "$APP_NAME" ]; then
-            unzip -qq app.ipa -d ipa
-            INFO=$(find ipa/Payload -name Info.plist | head -n1)
-            
-            if [ -n "$INFO" ]; then
-              APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$INFO" 2>/dev/null || true)
-              if [ -z "$APP_NAME" ]; then
-                APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$INFO" 2>/dev/null || true)
-              fi
-            fi
-            
-            rm -rf ipa
-          fi
-
-          if [ -z "$APP_NAME" ]; then
-            ORIGINAL_IPA_BASENAME=$(basename "${{ inputs.ipa_url }}" \?*)
-            APP_NAME="${ORIGINAL_IPA_BASENAME%.ipa}"
-          fi
-
-          [ -z "$APP_NAME" ] && APP_NAME="CustomApp"
-
-          first=""
-          count=0
-
+          # Thu gom tất cả file deb có trong thư mục theo đúng cách các repo mẫu làm
+          tweaks=""
           for f in *.deb; do
-            [ -f "$f" ] || continue
-            count=$((count+1))
-            if [ -z "$first" ]; then
-              first=$(basename "$f" .deb)
-            fi
+            [ -f "$f" ] && tweaks="$tweaks $f"
           done
-
-          if [ "$count" -gt 1 ]; then
-            TWEAK_NAME="${first} +$((count-1))"
-          else
-            TWEAK_NAME="$first"
-          fi
-
-          SAFE_APP=$(echo "$APP_NAME" | tr '/\:*?"<>|' '_')
-          SAFE_TWEAK=$(echo "$TWEAK_NAME" | tr '/\:*?"<>|' '_')
-
-          OUTPUT="${SAFE_APP} (${SAFE_TWEAK}).ipa"
-
-          echo "OUTPUT_FILE=$OUTPUT" >> $GITHUB_ENV
-          echo "ARTIFACT_NAME=${SAFE_APP} (${SAFE_TWEAK})" >> $GITHUB_ENV
-
-      - name: Inject tweaks
-        shell: bash
-        run: |
-          tweaks=()
-          for f in *.deb; do
-            [ -f "$f" ] || continue
-            tweaks+=("-f" "$f")
-          done
-
-          if [ ${#tweaks[@]} -eq 0 ]; then
-            echo "Error: Không tìm thấy file .deb nào!"
-            exit 1
-          fi
-
-          CMD=(cyan -i app.ipa -o "${{ env.OUTPUT_FILE }}" "${tweaks[@]}" -e)
-
+          
+          echo "Danh sách tweak được tìm thấy: $tweaks"
+          
+          # Xây dựng lệnh cyan linh hoạt
+          CMD="cyan -i youtube.ipa -o Output_App.ipa -uwef $tweaks"
+          
           if [ -n "${{ inputs.display_name }}" ]; then
-            CMD+=("-n" "${{ inputs.display_name }}")
+            CMD="$CMD -n '${{ inputs.display_name }}'"
           fi
-
+          
           if [ -n "${{ inputs.bundle_id }}" ]; then
-            CMD+=("-b" "${{ inputs.bundle_id }}")
+            CMD="$CMD -b ${{ inputs.bundle_id }}"
           fi
+          
+          echo "Thực thi: $CMD"
+          eval $CMD
 
-          echo "Running command:"
-          printf "%s\n" "${CMD[*]}"
-
-          "${CMD[@]}"
-
-      - name: Upload IPA (Artifact)
+      - name: Upload Patched IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ env.OUTPUT_FILE }}
-
-      - name: Create Release and Upload IPA
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ env.OUTPUT_FILE }}
-          tag_name: v${{ github.run_number }}
-          name: Release ${{ env.ARTIFACT_NAME }} (v${{ github.run_number }})
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: App-Da-Inject
+          path: Output_App.ipa
