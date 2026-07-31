@@ -14,7 +14,7 @@ on:
         type: string
 
       display_name:
-        description: 'Tên App mới (Để trống sẽ tự lấy từ IPA)'
+        description: 'Tên App mới (Để trống nếu giữ nguyên)'
         default: ''
         required: false
         type: string
@@ -41,115 +41,80 @@ jobs:
         run: |
           set -e
 
-          echo "Downloading IPA..."
-          wget --tries=3 --timeout=30 "${{ inputs.ipa_url }}" -O app.ipa
+          echo "📥 Đang tải IPA..."
+          wget --tries=3 --timeout=30 "${{ inputs.ipa_url }}" -O youtube.ipa
 
-          test -s app.ipa
+          if [ ! -s youtube.ipa ]; then
+            echo "❌ Không tải được IPA!"
+            exit 1
+          fi
 
-          ls -lh app.ipa
+          echo "✅ IPA tải thành công:"
+          ls -lh youtube.ipa
 
       - name: Download Tweaks
-        shell: bash
         run: |
           set -e
+
+          echo "📥 Đang tải tweak..."
 
           count=1
 
           while IFS= read -r url || [ -n "$url" ]; do
             [ -z "$url" ] && continue
 
-            echo "Downloading $url"
+            echo "→ $url"
 
             wget --tries=3 --timeout=30 "$url" -O "tweak$count.deb"
 
-            test -s "tweak$count.deb"
+            if [ ! -s "tweak$count.deb" ]; then
+              echo "❌ Không tải được tweak số $count"
+              exit 1
+            fi
 
             count=$((count+1))
 
-          done <<EOF
+          done << 'EOF'
 ${{ inputs.deb_urls }}
 EOF
 
+          echo ""
+          echo "✅ Danh sách tweak:"
           ls -lh *.deb
 
       - name: Install Cyan
         run: |
           pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
-      - name: Show Version
+      - name: Show Environment
         run: |
+          echo "===== Cyan Version ====="
           cyan --version || true
+
+          echo ""
+          echo "===== Files ====="
           ls -lah
 
       - name: Inject Tweaks
-        shell: bash
         run: |
           set -e
 
           tweaks=""
-          tweak_names=""
-          tweak_count=0
 
           for f in *.deb; do
-
-            [ -f "$f" ] || continue
-
-            tweaks="$tweaks $f"
-
-            tweak_count=$((tweak_count+1))
-
-            n=$(basename "$f" .deb)
-
-            if [ -z "$tweak_names" ]; then
-              tweak_names="$n"
-            else
-              tweak_names="$tweak_names + $n"
-            fi
-
+            [ -f "$f" ] && tweaks="$tweaks $f"
           done
 
-          APP_NAME="${{ inputs.display_name }}"
+          echo "Tweaks:$tweaks"
 
-          if [ -z "$APP_NAME" ]; then
+          OUTPUT="Output_App.ipa"
 
-            mkdir ipa_extract
-
-            unzip -qq app.ipa -d ipa_extract
-
-            APP_DIR=$(find ipa_extract/Payload -maxdepth 1 -name "*.app" | head -n1)
-
-            INFO="$APP_DIR/Info.plist"
-
-            if [ -f "$INFO" ]; then
-
-              APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$INFO" 2>/dev/null || true)
-
-              if [ -z "$APP_NAME" ]; then
-                APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$INFO" 2>/dev/null || true)
-              fi
-
-            fi
-
-            rm -rf ipa_extract
-
+          if [ -n "${{ inputs.display_name }}" ]; then
+            SAFE_NAME=$(echo "${{ inputs.display_name }}" | tr '/\:*?"<>|' '_')
+            OUTPUT="${SAFE_NAME}.ipa"
           fi
 
-          [ -z "$APP_NAME" ] && APP_NAME="Patched App"
-
-          if [ "$tweak_count" -gt 2 ]; then
-
-            first=$(basename "$(ls *.deb | head -n1)" .deb)
-
-            tweak_names="$first +$((tweak_count-1))"
-
-          fi
-
-          SAFE_APP=$(echo "$APP_NAME" | tr '/\:*?"<>|' '_')
-          SAFE_TWEAK=$(echo "$tweak_names" | tr '/\:*?"<>|' '_')
-
-          OUTPUT="${SAFE_APP} (${SAFE_TWEAK}).ipa"
-
-          CMD="cyan -i app.ipa -o \"$OUTPUT\" -uwef $tweaks"
+          CMD="cyan -i youtube.ipa -o \"$OUTPUT\" -uwef $tweaks"
 
           if [ -n "${{ inputs.display_name }}" ]; then
             CMD="$CMD -n \"${{ inputs.display_name }}\""
@@ -159,17 +124,18 @@ EOF
             CMD="$CMD -b \"${{ inputs.bundle_id }}\""
           fi
 
+          echo ""
+          echo "===== Running ====="
           echo "$CMD"
 
           eval "$CMD"
 
-          echo "OUTPUT_FILE=$OUTPUT" >> $GITHUB_ENV
-          echo "ARTIFACT_NAME=${SAFE_APP} (${SAFE_TWEAK})" >> $GITHUB_ENV
-
+          echo ""
+          echo "✅ Hoàn thành!"
           ls -lh "$OUTPUT"
 
-      - name: Upload IPA
+      - name: Upload Patched IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ env.OUTPUT_FILE }}
+          name: Patched-IPA
+          path: "*.ipa"
