@@ -1,244 +1,75 @@
-name: Auto Inject IPA and Tweak Pro AutoFix
+name: Auto Inject IPA and Tweak Pro
 
 on:
   workflow_dispatch:
     inputs:
       ipa_url:
-        description: 'URL direct IPA'
+        description: 'URL direct tới file IPA gốc (Decrypted)'
         required: true
         type: string
-
-      deb_url_1:
-        description: 'Tweak 1 (.deb)'
-        required: false
-        default: ''
+      deb_url:
+        description: 'URL direct tới file Tweak (.deb)'
+        required: true
         type: string
-
-      deb_url_2:
-        description: 'Tweak 2 (.deb)'
-        required: false
-        default: ''
-        type: string
-
-      deb_url_3:
-        description: 'Tweak 3 (.deb)'
-        required: false
-        default: ''
-        type: string
-
-      deb_url_4:
-        description: 'Tweak 4 (.deb)'
-        required: false
-        default: ''
-        type: string
-
-      deb_url_5:
-        description: 'Tweak 5 (.deb)'
-        required: false
-        default: ''
-        type: string
-
       display_name:
-        description: 'Tên App'
-        required: false
+        description: 'Tên App mới (Để trống nếu giữ nguyên)'
         default: ''
+        required: false
         type: string
-
       bundle_id:
-        description: 'Bundle ID'
-        required: false
+        description: 'Bundle ID mới (Để trống nếu giữ nguyên)'
         default: ''
+        required: false
         type: string
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-
   build:
-
     runs-on: macos-latest
-
-
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - uses: actions/checkout@v4
+      - name: Download IPA and Tweak
+        run: |
+          echo "Đang tải file IPA..."
+          wget "${{ inputs.ipa_url }}" --no-verbose -O youtube.ipa
+          
+          echo "Đang tải file Tweak (.deb)..."
+          wget "${{ inputs.deb_url }}" --no-verbose -O custom_tweak.deb
 
+      - name: Install cyan tool
+        run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
-
-    - name: Download IPA and DEB
-      shell: bash
-      env:
-
-        IPA_URL: ${{ inputs.ipa_url }}
-
-        DEB1: ${{ inputs.deb_url_1 }}
-        DEB2: ${{ inputs.deb_url_2 }}
-        DEB3: ${{ inputs.deb_url_3 }}
-        DEB4: ${{ inputs.deb_url_4 }}
-        DEB5: ${{ inputs.deb_url_5 }}
-
-      run: |
-
-        set -e
-
-
-        wget "$IPA_URL" -O app.ipa
-
-
-        i=1
-
-        for url in "$DEB1" "$DEB2" "$DEB3" "$DEB4" "$DEB5"
-        do
-
-          if [ -n "$url" ]; then
-
-            wget "$url" -O "tweak_$i.deb"
-
-            i=$((i+1))
-
+      - name: Inject tweaks into IPA (Standard Cyan Packing)
+        run: |
+          # Thu gom tất cả file deb có trong thư mục theo đúng cách các repo mẫu làm
+          tweaks=""
+          for f in *.deb; do
+            [ -f "$f" ] && tweaks="$tweaks $f"
+          done
+          
+          echo "Danh sách tweak được tìm thấy: $tweaks"
+          
+          # Xây dựng lệnh cyan linh hoạt
+          CMD="cyan -i youtube.ipa -o Output_App.ipa -uwef $tweaks"
+          
+          if [ -n "${{ inputs.display_name }}" ]; then
+            CMD="$CMD -n '${{ inputs.display_name }}'"
           fi
-
-        done
-
-
-
-    - name: Install tools
-
-      run: |
-
-        pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
-
-        brew install dpkg
-
-
-
-    - name: Extract all dylib from tweaks
-
-      run: |
-
-        mkdir -p extracted
-
-
-        for deb in tweak_*.deb
-        do
-
-          [ -f "$deb" ] || continue
-
-
-          mkdir temp
-
-
-          dpkg-deb -x "$deb" temp
-
-
-          find temp -name "*.dylib" -exec cp {} extracted/ \;
-
-
-          rm -rf temp
-
-
-        done
-
-
-        echo "Dylib found:"
-        ls -la extracted || true
-
-
-
-    - name: Inject tweaks
-
-      env:
-
-        NAME: ${{ inputs.display_name }}
-
-        BID: ${{ inputs.bundle_id }}
-
-      run: |
-
-        args=(-i app.ipa -o injected.ipa -uwef)
-
-
-        for deb in tweak_*.deb
-
-        do
-
-          [ -f "$deb" ] && args+=("$deb")
-
-        done
-
-
-
-        if [ -n "$NAME" ]; then
-
-          args+=(-n "$NAME")
-
-        fi
-
-
-        if [ -n "$BID" ]; then
-
-          args+=(-b "$BID")
-
-        fi
-
-
-
-        cyan "${args[@]}"
-
-
-
-    - name: Add dependency dylib
-
-      run: |
-
-        set -e
-
-
-        mkdir work
-
-
-        unzip -q injected.ipa -d work
-
-
-        APP=$(find work -name "*.app" | head -1)
-
-
-
-        mkdir -p "$APP/Frameworks"
-
-
-
-        cp extracted/*.dylib "$APP/Frameworks/" 2>/dev/null || true
-
-
-
-        for dylib in "$APP/Frameworks/"*.dylib
-
-        do
-
-          if [ -f "$dylib" ]; then
-
-            install_name_tool \
-            -add_rpath "@loader_path/Frameworks" \
-            "$dylib" || true
-
+          
+          if [ -n "${{ inputs.bundle_id }}" ]; then
+            CMD="$CMD -b ${{ inputs.bundle_id }}"
           fi
+          
+          echo "Thực thi: $CMD"
+          eval $CMD
 
-        done
-
-
-
-        cd work
-
-        zip -qr ../fixed.ipa .
-
-
-
-    - name: Upload IPA
-
-      uses: actions/upload-artifact@v4
-
-      with:
-
-        name: IPA-Fixed
-
-        path: fixed.ipa
+      - name: Upload Patched IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: App-Da-Inject
+          path: Output_App.ipa
