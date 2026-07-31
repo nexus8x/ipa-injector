@@ -7,8 +7,8 @@ on:
         description: 'URL direct tới file IPA gốc (Decrypted)'
         required: true
         type: string
-      deb_url:
-        description: 'URL direct tới file Tweak (.deb)'
+      deb_urls:
+        description: 'Danh sách URL các file Tweak (.deb), mỗi link một dòng'
         required: true
         type: string
       display_name:
@@ -33,20 +33,27 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download IPA and Tweak
+      - name: Download IPA and Tweaks
         run: |
           echo "Đang tải file IPA..."
           wget "${{ inputs.ipa_url }}" --no-verbose -O youtube.ipa
           
-          echo "Đang tải file Tweak (.deb)..."
-          wget "${{ inputs.deb_url }}" --no-verbose -O custom_tweak.deb
+          echo "Đang tải các file Tweak (.deb)..."
+          echo "${{ inputs.deb_urls }}" | while read -r url; do
+            # Bỏ qua dòng trống
+            [ -z "$url" ] && continue
+            # Xóa ký tự thừa tránh lỗi đường dẫn
+            url=$(echo "$url" | tr -d '\r')
+            echo "Đang tải: $url"
+            wget -nv "$url"
+          done
 
       - name: Install cyan tool
         run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
       - name: Inject tweaks into IPA (Standard Cyan Packing)
         run: |
-          # Thu gom tất cả file deb có trong thư mục theo đúng cách các repo mẫu làm
+          # Thu gom tất cả file deb có trong thư mục
           tweaks=""
           for f in *.deb; do
             [ -f "$f" ] && tweaks="$tweaks $f"
