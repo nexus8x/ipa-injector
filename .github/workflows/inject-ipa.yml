@@ -82,31 +82,34 @@ jobs:
           APP_NAME="${{ inputs.display_name }}"
 
           if [ -z "$APP_NAME" ]; then
-
+            # Thử giải nén và tìm tên trong Info.plist
             unzip -qq app.ipa -d ipa
-
             INFO=$(find ipa/Payload -name Info.plist | head -n1)
-
-            APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$INFO" 2>/dev/null || true)
-
-            if [ -z "$APP_NAME" ]; then
-              APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$INFO" 2>/dev/null || true)
+            
+            if [ -n "$INFO" ]; then
+              APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$INFO" 2>/dev/null || true)
+              if [ -z "$APP_NAME" ]; then
+                APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$INFO" 2>/dev/null || true)
+              fi
             fi
-
+            
             rm -rf ipa
-
           fi
 
-          [ -z "$APP_NAME" ] && APP_NAME="Patched App"
+          # Nếu vẫn không tìm thấy, lấy luôn tên từ file IPA gốc (bỏ đuôi .ipa)
+          if [ -z "$APP_NAME" ]; then
+            ORIGINAL_IPA_BASENAME=$(basename "${{ inputs.ipa_url }}" \?*)
+            APP_NAME="${ORIGINAL_IPA_BASENAME%.ipa}"
+          fi
+
+          [ -z "$APP_NAME" ] && APP_NAME="CustomApp"
 
           first=""
           count=0
 
           for f in *.deb; do
             [ -f "$f" ] || continue
-
             count=$((count+1))
-
             if [ -z "$first" ]; then
               first=$(basename "$f" .deb)
             fi
@@ -129,26 +132,31 @@ jobs:
       - name: Inject tweaks
         shell: bash
         run: |
-          tweaks=""
-
+          tweaks=()
           for f in *.deb; do
             [ -f "$f" ] || continue
-            tweaks="$tweaks \"$f\""
+            tweaks+=("-u" "$f")
           done
 
-          CMD="cyan -i app.ipa -o \"${{ env.OUTPUT_FILE }}\" -uwef $tweaks"
+          if [ ${#tweaks[@]} -eq 0 ]; then
+            echo "Error: Không tìm thấy file .deb nào!"
+            exit 1
+          fi
+
+          CMD=(cyan -i app.ipa -o "${{ env.OUTPUT_FILE }}" "${tweaks[@]}" -ef)
 
           if [ -n "${{ inputs.display_name }}" ]; then
-            CMD="$CMD -n \"${{ inputs.display_name }}\""
+            CMD+=("-n" "${{ inputs.display_name }}")
           fi
 
           if [ -n "${{ inputs.bundle_id }}" ]; then
-            CMD="$CMD -b \"${{ inputs.bundle_id }}\""
+            CMD+=("-b" "${{ inputs.bundle_id }}")
           fi
 
-          echo "$CMD"
+          echo "Running command:"
+          printf "%s\n" "${CMD[*]}"
 
-          eval "$CMD"
+          "${CMD[@]}"
 
       - name: Upload IPA (Artifact)
         uses: actions/upload-artifact@v4
