@@ -7,15 +7,18 @@ on:
         description: 'URL direct tới file IPA gốc (Decrypted)'
         required: true
         type: string
-      deb_url:
-        description: 'URL direct tới file Tweak (.deb)'
+
+      deb_urls:
+        description: 'Một hoặc nhiều URL tweak (.deb), mỗi link một dòng'
         required: true
         type: string
+
       display_name:
-        description: 'Tên App mới (Để trống nếu giữ nguyên)'
+        description: 'Tên App mới (Để trống sẽ tự lấy từ IPA)'
         default: ''
         required: false
         type: string
+
       bundle_id:
         description: 'Bundle ID mới (Để trống nếu giữ nguyên)'
         default: ''
@@ -29,47 +32,144 @@ concurrency:
 jobs:
   build:
     runs-on: macos-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download IPA and Tweak
+      - name: Download IPA
         run: |
-          echo "Đang tải file IPA..."
-          wget "${{ inputs.ipa_url }}" --no-verbose -O youtube.ipa
-          
-          echo "Đang tải file Tweak (.deb)..."
-          wget "${{ inputs.deb_url }}" --no-verbose -O custom_tweak.deb
+          set -e
 
-      - name: Install cyan tool
-        run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+          echo "Downloading IPA..."
+          wget --tries=3 --timeout=30 "${{ inputs.ipa_url }}" -O app.ipa
 
-      - name: Inject tweaks into IPA (Standard Cyan Packing)
+          test -s app.ipa
+
+          ls -lh app.ipa
+
+      - name: Download Tweaks
+        shell: bash
         run: |
-          # Thu gom tất cả file deb có trong thư mục theo đúng cách các repo mẫu làm
+          set -e
+
+          count=1
+
+          while IFS= read -r url || [ -n "$url" ]; do
+            [ -z "$url" ] && continue
+
+            echo "Downloading $url"
+
+            wget --tries=3 --timeout=30 "$url" -O "tweak$count.deb"
+
+            test -s "tweak$count.deb"
+
+            count=$((count+1))
+
+          done <<EOF
+${{ inputs.deb_urls }}
+EOF
+
+          ls -lh *.deb
+
+      - name: Install Cyan
+        run: |
+          pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+
+      - name: Show Version
+        run: |
+          cyan --version || true
+          ls -lah
+
+      - name: Inject Tweaks
+        shell: bash
+        run: |
+          set -e
+
           tweaks=""
-          for f in *.deb; do
-            [ -f "$f" ] && tweaks="$tweaks $f"
-          done
-          
-          echo "Danh sách tweak được tìm thấy: $tweaks"
-          
-          # Xây dựng lệnh cyan linh hoạt
-          CMD="cyan -i youtube.ipa -o Output_App.ipa -uwef $tweaks"
-          
-          if [ -n "${{ inputs.display_name }}" ]; then
-            CMD="$CMD -n '${{ inputs.display_name }}'"
-          fi
-          
-          if [ -n "${{ inputs.bundle_id }}" ]; then
-            CMD="$CMD -b ${{ inputs.bundle_id }}"
-          fi
-          
-          echo "Thực thi: $CMD"
-          eval $CMD
+          tweak_names=""
+          tweak_count=0
 
-      - name: Upload Patched IPA
+          for f in *.deb; do
+
+            [ -f "$f" ] || continue
+
+            tweaks="$tweaks $f"
+
+            tweak_count=$((tweak_count+1))
+
+            n=$(basename "$f" .deb)
+
+            if [ -z "$tweak_names" ]; then
+              tweak_names="$n"
+            else
+              tweak_names="$tweak_names + $n"
+            fi
+
+          done
+
+          APP_NAME="${{ inputs.display_name }}"
+
+          if [ -z "$APP_NAME" ]; then
+
+            mkdir ipa_extract
+
+            unzip -qq app.ipa -d ipa_extract
+
+            APP_DIR=$(find ipa_extract/Payload -maxdepth 1 -name "*.app" | head -n1)
+
+            INFO="$APP_DIR/Info.plist"
+
+            if [ -f "$INFO" ]; then
+
+              APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$INFO" 2>/dev/null || true)
+
+              if [ -z "$APP_NAME" ]; then
+                APP_NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$INFO" 2>/dev/null || true)
+              fi
+
+            fi
+
+            rm -rf ipa_extract
+
+          fi
+
+          [ -z "$APP_NAME" ] && APP_NAME="Patched App"
+
+          if [ "$tweak_count" -gt 2 ]; then
+
+            first=$(basename "$(ls *.deb | head -n1)" .deb)
+
+            tweak_names="$first +$((tweak_count-1))"
+
+          fi
+
+          SAFE_APP=$(echo "$APP_NAME" | tr '/\:*?"<>|' '_')
+          SAFE_TWEAK=$(echo "$tweak_names" | tr '/\:*?"<>|' '_')
+
+          OUTPUT="${SAFE_APP} (${SAFE_TWEAK}).ipa"
+
+          CMD="cyan -i app.ipa -o \"$OUTPUT\" -uwef $tweaks"
+
+          if [ -n "${{ inputs.display_name }}" ]; then
+            CMD="$CMD -n \"${{ inputs.display_name }}\""
+          fi
+
+          if [ -n "${{ inputs.bundle_id }}" ]; then
+            CMD="$CMD -b \"${{ inputs.bundle_id }}\""
+          fi
+
+          echo "$CMD"
+
+          eval "$CMD"
+
+          echo "OUTPUT_FILE=$OUTPUT" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=${SAFE_APP} (${SAFE_TWEAK})" >> $GITHUB_ENV
+
+          ls -lh "$OUTPUT"
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: App-Da-Inject
-          path: Output_App.ipa
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.OUTPUT_FILE }}
