@@ -38,25 +38,34 @@ jobs:
           echo "Đang tải file IPA..."
           curl -L "${{ inputs.ipa_url }}" -o youtube.ipa
           
-          echo "Đang tải các file Tweak (.deb)..."
-          # Dùng python để tách dòng và tải chuẩn xác 100% trên macOS
+          echo "Đang ghi danh sách link vào file tạm..."
+          # Đưa trực tiếp chuỗi vào file urls.txt an toàn tuyệt đối, không sợ lỗi cú pháp dòng
+          cat << 'EOF' > urls.txt
+          ${{ inputs.deb_urls }}
+          EOF
+          
+          echo "Đang tải các file Tweak (.deb) bằng Python..."
           python3 -c '
 import urllib.request
 import os
 
-urls = """${{ inputs.deb_urls }}""".strip().splitlines()
-for i, url in enumerate(urls, 1):
-    url = url.strip()
+with open("urls.txt", "r", encoding="utf-8") as f:
+    lines = f.readlines()
+
+index = 1
+for line in lines:
+    url = line.strip()
     if not url:
         continue
-    filename = f"tweak_{i}.deb"
-    print(f"Đang tải tweak {i} từ: {url}")
+    filename = f"tweak_{index}.deb"
+    print(f"Đang tải tweak {index} từ: {url}")
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req) as response, open(filename, "wb") as out_file:
             out_file.write(response.read())
-        print(f"Đã lưu thành công: {filename}")
+        print(f"Đã tải thành công: {filename}")
+        index += 1
     except Exception as e:
         print(f"Lỗi khi tải {url}: {e}")
           '
