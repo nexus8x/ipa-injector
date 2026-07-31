@@ -34,16 +34,20 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download IPA and Tweaks via Direct Links
+        env:
+          DEB_URLS_INPUT: ${{ inputs.deb_urls }}
+          IPA_URL_INPUT: ${{ inputs.ipa_url }}
         run: |
           echo "Đang tải file IPA gốc..."
-          curl -L "${{ inputs.ipa_url }}" -o youtube.ipa
+          curl -L "$IPA_URL_INPUT" -o youtube.ipa
           
-          echo "Đang tạo script tải tweak..."
+          echo "Đang tạo script tải tweak qua biến môi trường an toàn..."
           cat << 'EOF' > download_tweaks.py
 import urllib.request
 import os
+import sys
 
-raw_urls = """${{ inputs.deb_urls }}"""
+raw_urls = os.environ.get("DEB_URLS_INPUT", "")
 urls = raw_urls.strip().splitlines()
 
 index = 1
