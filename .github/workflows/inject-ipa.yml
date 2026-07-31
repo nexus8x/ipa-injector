@@ -36,29 +36,29 @@ jobs:
       - name: Download IPA and Tweaks
         run: |
           echo "Đang tải file IPA..."
-          wget "${{ inputs.ipa_url }}" --no-verbose -O youtube.ipa
+          curl -L "${{ inputs.ipa_url }}" -o youtube.ipa
           
           echo "Đang tải các file Tweak (.deb)..."
+          counter=1
           echo "${{ inputs.deb_urls }}" | while read -r url; do
-            # Bỏ qua dòng trống
             [ -z "$url" ] && continue
-            # Xóa ký tự thừa tránh lỗi đường dẫn
             url=$(echo "$url" | tr -d '\r')
-            echo "Đang tải: $url"
-            wget -nv "$url"
+            echo "Đang tải tweak $counter từ: $url"
+            curl -L "$url" -o "tweak_$counter.deb"
+            counter=$((counter + 1))
           done
+          
+          echo "Kiểm tra lại toàn bộ file trong thư mục:"
+          ls -la
 
       - name: Install cyan tool
         run: pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
       - name: Inject tweaks into IPA (Standard Cyan Packing)
         run: |
-          echo "Danh sách các file deb hiện có:"
-          ls -la *.deb
-          
-          # Gom tất cả các file deb kèm theo cú pháp -f cho mỗi file
+          # Thu gom tất cả file có tên tweak_*.deb
           tweaks=""
-          for f in *.deb; do
+          for f in tweak_*.deb; do
             if [ -f "$f" ]; then
               tweaks="$tweaks -f $f"
             fi
@@ -66,7 +66,6 @@ jobs:
           
           echo "Tham số tweak truyền vào: $tweaks"
           
-          # Xây dựng lệnh cyan chuẩn xác
           CMD="cyan -i youtube.ipa -o Output_App.ipa -uwe $tweaks"
           
           if [ -n "${{ inputs.display_name }}" ]; then
