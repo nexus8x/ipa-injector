@@ -4,25 +4,50 @@ on:
   workflow_dispatch:
     inputs:
       ipa_url:
-        description: 'URL direct tới file IPA gốc (Decrypted)'
+        description: 'URL direct tới file IPA'
         required: true
         type: string
 
-      deb_urls:
-        description: 'Một hoặc nhiều URL tweak (.deb), mỗi link một dòng'
-        required: true
+      deb_url_1:
+        description: 'Tweak 1 (.deb)'
+        required: false
+        default: ''
+        type: string
+
+      deb_url_2:
+        description: 'Tweak 2 (.deb)'
+        required: false
+        default: ''
+        type: string
+
+      deb_url_3:
+        description: 'Tweak 3 (.deb)'
+        required: false
+        default: ''
+        type: string
+
+      deb_url_4:
+        description: 'Tweak 4 (.deb)'
+        required: false
+        default: ''
+        type: string
+
+      deb_url_5:
+        description: 'Tweak 5 (.deb)'
+        required: false
+        default: ''
         type: string
 
       display_name:
-        description: 'Tên App mới (Để trống nếu giữ nguyên)'
-        default: ''
+        description: 'Tên App mới'
         required: false
+        default: ''
         type: string
 
       bundle_id:
-        description: 'Bundle ID mới (Để trống nếu giữ nguyên)'
-        default: ''
+        description: 'Bundle ID mới'
         required: false
+        default: ''
         type: string
 
 concurrency:
@@ -34,29 +59,33 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Download IPA and Tweaks
         shell: bash
         env:
           IPA_URL: ${{ inputs.ipa_url }}
-          DEB_URLS: ${{ inputs.deb_urls }}
+          DEB1: ${{ inputs.deb_url_1 }}
+          DEB2: ${{ inputs.deb_url_2 }}
+          DEB3: ${{ inputs.deb_url_3 }}
+          DEB4: ${{ inputs.deb_url_4 }}
+          DEB5: ${{ inputs.deb_url_5 }}
         run: |
-          echo "Đang tải IPA..."
-          wget "$IPA_URL" --no-verbose -O youtube.ipa
+          set -e
 
-          echo "Đang tải các tweak..."
+          wget "$IPA_URL" -O youtube.ipa
+
           i=1
-          while IFS= read -r url; do
+
+          for url in "$DEB1" "$DEB2" "$DEB3" "$DEB4" "$DEB5"; do
             if [ -n "$url" ]; then
-              echo "Tải tweak $i: $url"
-              wget "$url" --no-verbose -O "tweak_$i.deb"
+              echo "Downloading tweak $i..."
+              wget "$url" -O "tweak_$i.deb"
               i=$((i+1))
             fi
-          done <<< "$DEB_URLS"
+          done
 
-          echo "Danh sách tweak:"
+          echo "Downloaded tweaks:"
           ls -lh *.deb
 
       - name: Install cyan tool
@@ -71,7 +100,7 @@ jobs:
         run: |
           args=(-i youtube.ipa -o Output_App.ipa -uwef)
 
-          for f in *.deb; do
+          for f in tweak_*.deb; do
             [ -f "$f" ] && args+=("$f")
           done
 
@@ -85,7 +114,7 @@ jobs:
 
           echo "===================================="
           echo "Tweaks sẽ inject:"
-          printf ' - %s\n' *.deb
+          printf ' - %s\n' tweak_*.deb
           echo "===================================="
 
           cyan "${args[@]}"
