@@ -49,8 +49,10 @@ jobs:
           test -s app.ipa
 
           echo "Downloading Tweaks..."
-          while IFS= read -r url; do
-            url=$(echo "$url" | tr -d '\r' | xargs)
+          # Xử lý tách chuỗi triệt để, chống lỗi dính dòng của GitHub Actions input
+          RAW_URLS="${{ inputs.deb_urls }}"
+          # Thay thế mọi kiểu xuống dòng thành khoảng trắng để ép duyệt từng link
+          for url in $(echo "$RAW_URLS" | tr '\r\n' ' ' | xargs); do
             [ -z "$url" ] && continue
 
             FILE=$(basename "${url%%\?*}")
@@ -62,11 +64,9 @@ jobs:
             echo "Downloading $FILE from $url"
             wget --tries=3 --timeout=30 "$url" -O "$FILE"
             test -s "$FILE"
-          done << 'EOF'
-          ${{ inputs.deb_urls }}
-          EOF
+          done
 
-          echo "Danh sách các file .deb đã tải về:"
+          echo "Danh sách tất cả các file .deb đã tải về:"
           ls -lh *.deb
 
       - name: Install cyan tool
@@ -130,7 +130,6 @@ jobs:
           tweaks=()
           for f in *.deb; do
             [ -f "$f" ] || continue
-            # Sửa từ -u sang -f theo đúng chuẩn của công cụ cyan
             tweaks+=("-f" "$f")
           done
 
