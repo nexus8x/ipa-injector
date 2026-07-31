@@ -143,7 +143,7 @@ jobs:
             exit 1
           fi
 
-          CMD=(cyan -i app.ipa -o "${{ env.OUTPUT_FILE }}" "${tweaks[@]}" -ef)
+          CMD=(cyan -i app.ipa -o "${{ env.OUTPUT_FILE }}" "${tweaks[@]}" -e)
 
           if [ -n "${{ inputs.display_name }}" ]; then
             CMD+=("-n" "${{ inputs.display_name }}")
