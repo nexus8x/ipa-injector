@@ -39,7 +39,6 @@ jobs:
           curl -L "${{ inputs.ipa_url }}" -o youtube.ipa
           
           echo "Đang tải các file Tweak (.deb)..."
-          # Xử lý đọc từng dòng từ input danh sách link direct, hỗ trợ sạch sẽ mọi định dạng dòng
           python3 -c '
 import urllib.request
 import os
@@ -71,7 +70,6 @@ for url in urls:
 
       - name: Inject Tweaks & Optimize for SideStore / LiveContainer
         run: |
-          # Tự động gom toàn bộ file tweak vừa tải với đúng chuẩn tham số -f cho từng file
           tweaks=""
           for f in tweak_*.deb; do
             if [ -f "$f" ]; then
@@ -81,7 +79,6 @@ for url in urls:
           
           echo "Danh sách tham số tweak truyền vào: $tweaks"
           
-          # Câu lệnh cyan chuẩn tối ưu cho việc ký lại và chạy mượt trên SideStore/LiveContainer
           CMD="cyan -i youtube.ipa -o Output_Final.ipa -uwe $tweaks"
           
           if [ -n "${{ inputs.display_name }}" ]; then
@@ -89,7 +86,7 @@ for url in urls:
           fi
           
           if [ -n "${{ inputs.bundle_id }}" ]; then
-            CMD="$CMD -b '${{ inputs.bundle_id }}'"
+            CMD="$CMD -b ${{ inputs.bundle_id }}"
           fi
           
           echo "Thực thi lệnh: $CMD"
