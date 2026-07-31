@@ -41,8 +41,6 @@ jobs:
 
       - name: Download IPA and Tweaks
         shell: bash
-        env:
-          DEB_URLS: ${{ inputs.deb_urls }}
         run: |
           set -e
 
@@ -51,7 +49,7 @@ jobs:
           test -s app.ipa
 
           echo "Downloading Tweaks..."
-          while IFS= read -r url || [ -n "$url" ]; do
+          while IFS= read -r url; do
             url=$(echo "$url" | tr -d '\r' | xargs)
             [ -z "$url" ] && continue
 
@@ -64,7 +62,9 @@ jobs:
             echo "Downloading $FILE from $url"
             wget --tries=3 --timeout=30 "$url" -O "$FILE"
             test -s "$FILE"
-          done <<< "$DEB_URLS"
+          done << 'EOF'
+          ${{ inputs.deb_urls }}
+          EOF
 
           echo "Danh sách các file .deb đã tải về:"
           ls -lh *.deb
@@ -130,7 +130,8 @@ jobs:
           tweaks=()
           for f in *.deb; do
             [ -f "$f" ] || continue
-            tweaks+=("-u" "$f")
+            # Sửa từ -u sang -f theo đúng chuẩn của công cụ cyan
+            tweaks+=("-f" "$f")
           done
 
           if [ ${#tweaks[@]} -eq 0 ]; then
